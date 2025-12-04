@@ -1,6 +1,18 @@
-# RetGit
+<p align="center">
+  <img src="assets/logo.svg" alt="RetGit Logo" width="400"/>
+</p>
 
-> **AI-powered Git workflow assistant with task management integration**
+<p align="center">
+  <strong>AI-powered Git workflow assistant with task management integration</strong>
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/retgit/"><img src="https://img.shields.io/pypi/v/retgit.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/retgit/"><img src="https://img.shields.io/pypi/pyversions/retgit.svg" alt="Python versions"></a>
+  <a href="https://github.com/ertiz82/retgit/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+</p>
+
+---
 
 RetGit analyzes your code changes, groups them logically, matches them with your active tasks (Jira, Linear, etc.), and creates well-structured commits automatically.
 
