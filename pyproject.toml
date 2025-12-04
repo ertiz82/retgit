@@ -37,10 +37,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ertiz82/smart-commit"
-Documentation = "https://github.com/ertiz82/smart-commit#readme"
-Repository = "https://github.com/ertiz82/smart-commit.git"
-Issues = "https://github.com/ertiz82/smart-commit/issues"
+Homepage = "https://github.com/ertiz82/retgit"
+Documentation = "https://github.com/ertiz82/retgit#readme"
+Repository = "https://github.com/ertiz82/retgit.git"
+Issues = "https://github.com/ertiz82/retgit/issues"
 
 [project.scripts]
 retgit = "smart_commit.cli:main"

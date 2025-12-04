@@ -31,7 +31,7 @@ RetGit analyzes your code changes, groups them logically, matches them with your
 pip install retgit
 
 # From source
-git clone https://github.com/ertiz82/smart-commit.git
+git clone https://github.com/ertiz82/retgit.git
 cd smart-commit
 pip install -e .
 ```
