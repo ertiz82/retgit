@@ -1,6 +1,6 @@
 # Integrations Guide
 
-SmartCommit supports multiple integration types:
+RetGit supports multiple integration types:
 
 - **Task Management**: Jira, Linear (planned), Asana (planned)
 - **Code Hosting**: GitHub, GitLab (planned), Bitbucket (planned)
@@ -41,13 +41,13 @@ Full-featured Jira Cloud integration with Scrum and Kanban support.
 ### Installation
 
 ```bash
-sgc integration install jira
+rg integration install jira
 ```
 
 ### Configuration
 
 ```yaml
-# .smartcommit/config.yaml
+# .retgit/config.yaml
 active:
   task_management: jira
 
@@ -73,7 +73,7 @@ export JIRA_API_TOKEN="your-api-token"
 
 1. Go to [Atlassian API Tokens](https://id.atlassian.com/manage-profile/security/api-tokens)
 2. Click "Create API token"
-3. Give it a descriptive label (e.g., "SmartCommit")
+3. Give it a descriptive label (e.g., "RetGit")
 4. Copy the token
 5. Store as `JIRA_API_TOKEN` environment variable
 
@@ -102,7 +102,7 @@ Example: `feature/PROJ-123-add-user-authentication`
 For Scrum boards:
 - Auto-detects active sprint
 - New issues are added to active sprint
-- Shows sprint info in `sgc propose`
+- Shows sprint info in `rg propose`
 
 ### Jira API Endpoints Used
 
@@ -127,13 +127,13 @@ GitHub integration for repository operations and PR creation.
 ### Installation
 
 ```bash
-sgc integration install github
+rg integration install github
 ```
 
 ### Configuration
 
 ```yaml
-# .smartcommit/config.yaml
+# .retgit/config.yaml
 active:
   code_hosting: github
 
@@ -163,7 +163,7 @@ export GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
 
 #### Pull Request Creation
 ```bash
-sgc push --pr
+rg push --pr
 ```
 
 Creates a PR with:
@@ -178,7 +178,7 @@ Creates a PR with:
 ### Task Management Integration
 
 ```python
-# smart_commit/integrations/linear.py
+# retgit/integrations/linear.py
 
 from .base import TaskManagementBase, Issue, Sprint, IntegrationType
 
@@ -218,7 +218,7 @@ class LinearIntegration(TaskManagementBase):
 ### Code Hosting Integration
 
 ```python
-# smart_commit/integrations/gitlab.py
+# retgit/integrations/gitlab.py
 
 from .base import CodeHostingBase, IntegrationType
 
@@ -242,7 +242,7 @@ class GitlabIntegration(CodeHostingBase):
 
 ### Register New Integration
 
-Add to `smart_commit/integrations/registry.py`:
+Add to `retgit/integrations/registry.py`:
 
 ```python
 BUILTIN_INTEGRATIONS = {
@@ -306,11 +306,11 @@ Integration install wizards use `install_schemas.json`:
 
 2. **Test connection before committing**
    ```bash
-   sgc integration status
+   rg integration status
    ```
 
 3. **Use project-specific config**
-   Each project can have different integration settings in `.smartcommit/config.yaml`
+   Each project can have different integration settings in `.retgit/config.yaml`
 
 4. **Enable only what you need**
    ```yaml
