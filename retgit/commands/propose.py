@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 
 from ..core.config import ConfigManager, StateManager
-from ..core.gitops import GitOps
+from ..core.gitops import GitOps, NotAGitRepoError, init_git_repo
 from ..core.llm import LLMClient
 from ..core.prompt import PromptManager
 from ..integrations.registry import get_task_management, get_code_hosting
@@ -36,7 +36,26 @@ def propose_cmd(
     config_manager = ConfigManager()
     state_manager = StateManager()
     config = config_manager.load()
-    gitops = GitOps()
+
+    try:
+        gitops = GitOps()
+    except NotAGitRepoError:
+        console.print("[yellow]⚠️  Not a git repository.[/yellow]")
+        if Confirm.ask("Initialize git repository here?", default=True):
+            remote_url = Prompt.ask("Remote URL (optional, press Enter to skip)", default="")
+            remote_url = remote_url.strip() if remote_url else None
+            try:
+                init_git_repo(remote_url)
+                console.print("[green]✓ Git repository initialized[/green]")
+                if remote_url:
+                    console.print(f"[green]✓ Remote 'origin' added: {remote_url}[/green]")
+                gitops = GitOps()
+            except Exception as e:
+                console.print(f"[red]❌ Failed to initialize git: {e}[/red]")
+                raise typer.Exit(1)
+        else:
+            raise typer.Exit(1)
+
     workflow = config.get("workflow", {})
 
     # Get task management integration if available
@@ -191,9 +210,9 @@ def propose_cmd(
 
         strategy = workflow.get("strategy", "local-merge")
         if strategy == "local-merge":
-            console.print("[dim]Run 'sgc push' to push branches and complete issues[/dim]")
+            console.print("[dim]Run 'rg push' to push branches and complete issues[/dim]")
         else:
-            console.print("[dim]Branches pushed. Run 'sgc push' to complete issues[/dim]")
+            console.print("[dim]Branches pushed. Run 'rg push' to complete issues[/dim]")
 
 
 def _show_active_issues(issues: List[Issue]):
@@ -273,7 +292,7 @@ def _process_matched_groups(
                 msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
                 msg += f"\n\nRefs: {issue_key}"
 
-                gitops.commit(msg)
+                gitops.commit(msg, staged)
                 console.print(f"[green]   ✓ Committed to {branch_name}[/green]")
 
                 # Add comment to issue
@@ -372,7 +391,7 @@ def _process_unmatched_groups(
                 if issue_key:
                     msg += f"\n\nRefs: {issue_key}"
 
-                gitops.commit(msg)
+                gitops.commit(msg, staged)
                 console.print(f"[green]   ✓ Committed to {branch_name}[/green]")
 
                 # Add comment if issue was created
