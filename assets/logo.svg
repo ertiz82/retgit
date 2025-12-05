@@ -39,7 +39,7 @@
   </g>
 
   <!-- "RET" text - retro style -->
-  <text x="80" y="75" font-family="monospace" font-size="48" font-weight="bold" fill="url(#grad1)">RET</text>
+  <text x="80" y="75" font-family="monospace" font-size="48" font-weight="bold" fill="url(#grad1)">RED</text>
 
   <!-- "GIT" text -->
   <text x="195" y="75" font-family="monospace" font-size="48" font-weight="bold" fill="url(#grad2)">GIT</text>
@@ -64,5 +64,5 @@
 
   <!-- Version badge -->
   <rect x="320" y="80" width="60" height="20" rx="4" fill="#4ECDC4"/>
-  <text x="350" y="94" font-family="monospace" font-size="10" fill="#1a1a2e" text-anchor="middle">v0.1.9</text>
+  <text x="350" y="94" font-family="monospace" font-size="10" fill="#1a1a2e" text-anchor="middle">v0.2.0</text>
 </svg>
