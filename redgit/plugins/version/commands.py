@@ -108,20 +108,22 @@ def version_show():
 
 @version_app.command("release")
 def version_release(
-    level: str = typer.Argument(..., help="Release level: patch, minor, or major"),
+    level: str = typer.Argument(..., help="Release level: patch, minor, major, or current"),
     dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would happen"),
     no_changelog: bool = typer.Option(False, "--no-changelog", help="Skip changelog generation"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force tag creation (delete existing tag if exists)"),
 ):
     """
     Release a new version.
 
     Examples:
-        rg version release patch   # 0.1.0 -> 0.1.1
-        rg version release minor   # 0.1.1 -> 0.2.0
-        rg version release major   # 0.2.0 -> 1.0.0
+        rg version release patch    # 0.1.0 -> 0.1.1
+        rg version release minor    # 0.1.1 -> 0.2.0
+        rg version release major    # 0.2.0 -> 1.0.0
+        rg version release current  # Tag current version (no bump)
     """
-    if level not in ["patch", "minor", "major"]:
-        console.print(f"[red]Invalid level: {level}. Use patch, minor, or major.[/red]")
+    if level not in ["patch", "minor", "major", "current"]:
+        console.print(f"[red]Invalid level: {level}. Use patch, minor, major, or current.[/red]")
         raise typer.Exit(1)
 
     plugin = get_plugin()
@@ -131,23 +133,46 @@ def version_release(
         console.print("[yellow]No version configured. Run 'rg version init' first.[/yellow]")
         raise typer.Exit(1)
 
-    # Calculate new version
-    new_version = current.bump(level)
+    # Calculate new version (or use current)
+    if level == "current":
+        new_version = current
+        console.print(f"\n[bold]Release current:[/bold] [cyan]{new_version}[/cyan] (no version bump)")
+    else:
+        new_version = current.bump(level)
+        console.print(f"\n[bold]Release {level}:[/bold] {current} → [cyan]{new_version}[/cyan]")
+
     tag_prefix = plugin.get_tag_prefix()
     tag_name = f"{tag_prefix}{new_version}"
 
-    console.print(f"\n[bold]Release {level}:[/bold] {current} → [cyan]{new_version}[/cyan]")
+    # Check if tag already exists
+    try:
+        gitops = GitOps()
+        existing_tags = gitops.repo.git.tag().split("\n")
+        tag_exists = tag_name in existing_tags
+    except Exception:
+        tag_exists = False
+        gitops = None
+
+    if tag_exists:
+        if force or level == "current":
+            console.print(f"[yellow]⚠️  Tag {tag_name} already exists, will be replaced[/yellow]")
+        else:
+            console.print(f"[red]Tag {tag_name} already exists. Use --force to replace it.[/red]")
+            raise typer.Exit(1)
 
     if dry_run:
         console.print("\n[yellow]Dry run - no changes made[/yellow]")
 
-        # Show what would be updated
-        files = plugin.get_version_files()
-        console.print("\n[dim]Would update:[/dim]")
-        for filepath, _ in files:
-            console.print(f"  - {filepath}")
+        if level != "current":
+            # Show what would be updated
+            files = plugin.get_version_files()
+            console.print("\n[dim]Would update:[/dim]")
+            for filepath, _ in files:
+                console.print(f"  - {filepath}")
 
-        console.print(f"\n[dim]Would create tag: {tag_name}[/dim]")
+        if tag_exists:
+            console.print(f"\n[dim]Would delete existing tag: {tag_name}[/dim]")
+        console.print(f"[dim]Would create tag: {tag_name}[/dim]")
 
         if level == "major" and plugin.is_changelog_enabled() and not no_changelog:
             console.print(f"[dim]Would generate changelog for {new_version}[/dim]")
@@ -158,19 +183,24 @@ def version_release(
     if not Confirm.ask(f"Release {tag_name}?", default=True):
         return
 
-    # Update all version files
-    console.print("\n[yellow]Updating version files...[/yellow]")
-    updated_files = plugin.update_all_versions(current, new_version)
+    # For "current" level, skip version file updates
+    if level == "current":
+        updated_files = []
+        console.print("\n[dim]Skipping version file updates (current level)[/dim]")
+    else:
+        # Update all version files
+        console.print("\n[yellow]Updating version files...[/yellow]")
+        updated_files = plugin.update_all_versions(current, new_version)
 
-    for f in updated_files:
-        console.print(f"  [green]✓[/green] {f}")
+        for f in updated_files:
+            console.print(f"  [green]✓[/green] {f}")
 
-    if not updated_files:
-        console.print("  [yellow]No files updated[/yellow]")
+        if not updated_files:
+            console.print("  [yellow]No files updated[/yellow]")
 
-    # Save to config
-    plugin.save_version_to_config(new_version)
-    console.print(f"  [green]✓[/green] .redgit/config.yaml")
+        # Save to config
+        plugin.save_version_to_config(new_version)
+        console.print(f"  [green]✓[/green] .redgit/config.yaml")
 
     # Generate changelog for major releases
     if level == "major" and plugin.is_changelog_enabled() and not no_changelog:
@@ -183,24 +213,42 @@ def version_release(
 
     # Git operations
     try:
-        gitops = GitOps()
+        if gitops is None:
+            gitops = GitOps()
 
-        # Stage updated files
-        files_to_stage = updated_files + [".redgit/config.yaml"]
+        # Delete existing tag if needed
+        if tag_exists:
+            console.print(f"\n[yellow]Deleting existing tag {tag_name}...[/yellow]")
+            try:
+                gitops.repo.git.tag("-d", tag_name)
+                console.print(f"  [green]✓[/green] Deleted local tag: {tag_name}")
+            except Exception:
+                pass
+            # Also try to delete from remote (will be pushed later)
+            try:
+                gitops.repo.git.push("origin", f":refs/tags/{tag_name}")
+                console.print(f"  [green]✓[/green] Deleted remote tag: {tag_name}")
+            except Exception:
+                pass
 
-        # Check if changelog was created
-        from pathlib import Path
-        changelog_file = Path(f"changelogs/v{new_version}.md")
-        if changelog_file.exists():
-            files_to_stage.append(str(changelog_file))
-        main_changelog = Path("CHANGELOG.md")
-        if main_changelog.exists():
-            files_to_stage.append("CHANGELOG.md")
+        # For non-current releases, create commit
+        if level != "current" and updated_files:
+            # Stage updated files
+            files_to_stage = updated_files + [".redgit/config.yaml"]
 
-        console.print("\n[yellow]Creating release commit...[/yellow]")
-        gitops.repo.index.add(files_to_stage)
-        gitops.repo.index.commit(f"chore(release): {tag_name}")
-        console.print(f"  [green]✓[/green] Committed: chore(release): {tag_name}")
+            # Check if changelog was created
+            from pathlib import Path
+            changelog_file = Path(f"changelogs/v{new_version}.md")
+            if changelog_file.exists():
+                files_to_stage.append(str(changelog_file))
+            main_changelog = Path("CHANGELOG.md")
+            if main_changelog.exists():
+                files_to_stage.append("CHANGELOG.md")
+
+            console.print("\n[yellow]Creating release commit...[/yellow]")
+            gitops.repo.index.add(files_to_stage)
+            gitops.repo.index.commit(f"chore(release): {tag_name}")
+            console.print(f"  [green]✓[/green] Committed: chore(release): {tag_name}")
 
         # Create tag
         console.print("\n[yellow]Creating git tag...[/yellow]")
@@ -222,16 +270,18 @@ def version_release(
 
 # Shortcut command for main CLI
 def release_shortcut(
-    level: str = typer.Argument(..., help="Release level: patch, minor, or major"),
+    level: str = typer.Argument(..., help="Release level: patch, minor, major, or current"),
     dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would happen"),
     no_changelog: bool = typer.Option(False, "--no-changelog", help="Skip changelog generation"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force tag creation (delete existing tag if exists)"),
 ):
     """
     Shortcut for 'rg version release'.
 
     Examples:
-        rg release patch   # 0.1.0 -> 0.1.1
-        rg release minor   # 0.1.1 -> 0.2.0
-        rg release major   # 0.2.0 -> 1.0.0
+        rg release patch    # 0.1.0 -> 0.1.1
+        rg release minor    # 0.1.1 -> 0.2.0
+        rg release major    # 0.2.0 -> 1.0.0
+        rg release current  # Tag current version (no bump)
     """
-    version_release(level, dry_run, no_changelog)
+    version_release(level, dry_run, no_changelog, force)

@@ -206,13 +206,9 @@ def propose_cmd(
     if session:
         branches = session.get("branches", [])
         issues = session.get("issues", [])
-        console.print(f"\n[bold green]✅ Created {len(branches)} branches for {len(issues)} issues[/bold green]")
-
-        strategy = workflow.get("strategy", "local-merge")
-        if strategy == "local-merge":
-            console.print("[dim]Run 'rg push' to push branches and complete issues[/dim]")
-        else:
-            console.print("[dim]Branches pushed. Run 'rg push' to complete issues[/dim]")
+        console.print(f"\n[bold green]✅ Created {len(branches)} commits for {len(issues)} issues[/bold green]")
+        console.print("[dim]All commits are merged to current branch.[/dim]")
+        console.print("[dim]Run 'rg push' to push to remote and complete issues[/dim]")
 
 
 def _show_active_issues(issues: List[Issue]):
@@ -275,25 +271,17 @@ def _process_matched_groups(
         branch_name = task_mgmt.format_branch_name(issue_key, group.get("commit_title", ""))
         group["branch"] = branch_name
 
-        # Create branch and commit
+        # Build commit message with issue reference
+        msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
+        msg += f"\n\nRefs: {issue_key}"
+
+        # Create branch and commit using new method
         try:
-            with gitops.isolated_branch(branch_name):
-                staged, excluded = gitops.stage_files(group.get("files", []))
+            files = group.get("files", [])
+            success = gitops.create_branch_and_commit(branch_name, files, msg)
 
-                if excluded:
-                    console.print(f"[yellow]   ⚠️  {len(excluded)} sensitive files skipped[/yellow]")
-
-                if not staged:
-                    console.print(f"[yellow]   ⚠️  No files to commit[/yellow]")
-                    continue
-
-                # Build commit message with issue reference
-                commit_prefix = task_mgmt.get_commit_prefix()
-                msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
-                msg += f"\n\nRefs: {issue_key}"
-
-                gitops.commit(msg, staged)
-                console.print(f"[green]   ✓ Committed to {branch_name}[/green]")
+            if success:
+                console.print(f"[green]   ✓ Committed and merged {branch_name}[/green]")
 
                 # Add comment to issue
                 task_mgmt.on_commit(group, {"issue_key": issue_key})
@@ -303,8 +291,10 @@ def _process_matched_groups(
                     if task_mgmt.transition_issue(issue_key, "In Progress"):
                         console.print(f"[blue]   → Issue moved to In Progress[/blue]")
 
-                # Save to session
+                # Save to session (branch is merged but track the commit)
                 state_manager.add_session_branch(branch_name, issue_key)
+            else:
+                console.print(f"[yellow]   ⚠️  No files to commit[/yellow]")
 
         except Exception as e:
             console.print(f"[red]   ❌ Error: {e}[/red]")
@@ -374,32 +364,27 @@ def _process_unmatched_groups(
         group["branch"] = branch_name
         group["issue_key"] = issue_key
 
-        # Create branch and commit
+        # Build commit message
+        msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
+        if issue_key:
+            msg += f"\n\nRefs: {issue_key}"
+
+        # Create branch and commit using new method
         try:
-            with gitops.isolated_branch(branch_name):
-                staged, excluded = gitops.stage_files(group.get("files", []))
+            files = group.get("files", [])
+            success = gitops.create_branch_and_commit(branch_name, files, msg)
 
-                if excluded:
-                    console.print(f"[yellow]   ⚠️  {len(excluded)} sensitive files skipped[/yellow]")
-
-                if not staged:
-                    console.print(f"[yellow]   ⚠️  No files to commit[/yellow]")
-                    continue
-
-                # Build commit message
-                msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
-                if issue_key:
-                    msg += f"\n\nRefs: {issue_key}"
-
-                gitops.commit(msg, staged)
-                console.print(f"[green]   ✓ Committed to {branch_name}[/green]")
+            if success:
+                console.print(f"[green]   ✓ Committed and merged {branch_name}[/green]")
 
                 # Add comment if issue was created
                 if issue_key and task_mgmt:
                     task_mgmt.on_commit(group, {"issue_key": issue_key})
 
-                # Save to session
+                # Save to session (branch is merged but track the commit)
                 state_manager.add_session_branch(branch_name, issue_key)
+            else:
+                console.print(f"[yellow]   ⚠️  No files to commit[/yellow]")
 
         except Exception as e:
             console.print(f"[red]   ❌ Error: {e}[/red]")
