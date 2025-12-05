@@ -137,27 +137,48 @@ class GitOps:
         except ValueError:
             return False
 
-    def create_branch_and_commit(self, branch_name: str, files: List[str], message: str) -> bool:
+    def create_branch_and_commit(
+        self,
+        branch_name: str,
+        files: List[str],
+        message: str,
+        strategy: str = "local-merge"
+    ) -> bool:
         """
         Create a branch and commit specific files without losing working directory changes.
-
-        Strategy:
-        1. Stage ALL changes first (to preserve them)
-        2. Create branch from base
-        3. Reset staging area
-        4. Stage only the specific files for this commit
-        5. Commit
-        6. Return to base branch
-        7. Merge the feature branch
-        8. Working directory files remain intact for next group
 
         Args:
             branch_name: Name of the branch to create
             files: List of files to commit
             message: Commit message
+            strategy: "local-merge" (merge immediately) or "merge-request" (keep branch for PR)
 
         Returns:
             True if successful, False otherwise
+
+        Strategy for local-merge:
+        1. Stash all changes (including untracked)
+        2. Create and checkout feature branch from base
+        3. Pop stash to get files back
+        4. Reset index (unstage everything)
+        5. Stage only the specific files
+        6. Commit
+        7. Stash remaining changes before switching
+        8. Checkout base branch
+        9. Merge feature branch
+        10. Delete feature branch (it's merged now)
+        11. Pop remaining stash
+
+        Strategy for merge-request:
+        1. Stash all changes (including untracked)
+        2. Create and checkout feature branch from base
+        3. Pop stash to get files back
+        4. Reset index (unstage everything)
+        5. Stage only the specific files
+        6. Commit
+        7. Stash remaining changes before switching
+        8. Checkout base branch (branch is kept for later push)
+        9. Pop remaining stash
         """
         base_branch = self.original_branch
 
@@ -165,6 +186,8 @@ class GitOps:
         safe_files = [f for f in files if not is_excluded(f) and Path(f).exists()]
         if not safe_files:
             return False
+
+        actual_branch_name = branch_name
 
         try:
             # 1. Stash all changes (including untracked)
@@ -184,8 +207,8 @@ class GitOps:
                     self.repo.git.checkout(branch_name)
                 except Exception:
                     # Try with suffix
-                    branch_name = f"{branch_name}-v2"
-                    self.repo.git.checkout("-b", branch_name, base_branch)
+                    actual_branch_name = f"{branch_name}-v2"
+                    self.repo.git.checkout("-b", actual_branch_name, base_branch)
 
             # 3. Pop stash to get files back
             if stash_created:
@@ -221,18 +244,21 @@ class GitOps:
             # 8. Checkout base branch
             self.repo.git.checkout(base_branch)
 
-            # 9. Merge feature branch
-            try:
-                self.repo.git.merge(branch_name, "--no-ff", "-m", f"Merge {branch_name}")
-            except Exception:
-                # Fast-forward merge
-                self.repo.git.merge(branch_name)
+            # For local-merge strategy: merge and delete branch
+            if strategy == "local-merge":
+                # 9. Merge feature branch
+                try:
+                    self.repo.git.merge(actual_branch_name, "--no-ff", "-m", f"Merge {actual_branch_name}")
+                except Exception:
+                    # Fast-forward merge
+                    self.repo.git.merge(actual_branch_name)
 
-            # 10. Delete feature branch (it's merged now)
-            try:
-                self.repo.git.branch("-d", branch_name)
-            except Exception:
-                pass
+                # 10. Delete feature branch (it's merged now)
+                try:
+                    self.repo.git.branch("-d", actual_branch_name)
+                except Exception:
+                    pass
+            # For merge-request strategy: branch is kept for later push
 
             # 11. Pop remaining stash
             if remaining_stashed:
