@@ -1,12 +1,38 @@
-# Integrations Guide
+# Integrations
 
-RetGit supports multiple integration types:
+RedGit supports various integrations for task management and code hosting platforms.
 
-- **Task Management**: Jira, Linear (planned), Asana (planned)
-- **Code Hosting**: GitHub, GitLab (planned), Bitbucket (planned)
-- **Notifications**: Slack (planned), Discord (planned)
+## Available Integrations
 
----
+| Integration | Type | Status | Documentation |
+|-------------|------|--------|---------------|
+| Jira | Task Management | ✅ Available | [jira.md](integrations/jira.md) |
+| GitHub | Code Hosting | ✅ Available | [github.md](integrations/github.md) |
+| Linear | Task Management | 🔜 Planned | - |
+| GitLab | Code Hosting | 🔜 Planned | - |
+| Bitbucket | Code Hosting | 🔜 Planned | - |
+| Slack | Notifications | 🔜 Planned | - |
+
+## Quick Start
+
+### Install an Integration
+
+```bash
+rg integration install jira
+rg integration install github
+```
+
+### Check Status
+
+```bash
+rg integration status
+```
+
+### List Available
+
+```bash
+rg integration list
+```
 
 ## Integration Architecture
 
@@ -32,6 +58,42 @@ RetGit supports multiple integration types:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Configuration
+
+Integrations are configured in `.redgit/config.yaml`:
+
+```yaml
+active:
+  task_management: jira
+  code_hosting: github
+
+integrations:
+  jira:
+    site: https://your-company.atlassian.net
+    email: developer@company.com
+    project_key: PROJ
+
+  github:
+    owner: your-username
+    repo: your-repo
+```
+
+## Environment Variables
+
+Sensitive data should be stored in environment variables:
+
+| Integration | Environment Variable |
+|-------------|---------------------|
+| Jira | `JIRA_API_TOKEN` |
+| GitHub | `GITHUB_TOKEN` |
+
+---
+
+## Detailed Documentation
+
+- **[Jira Integration](integrations/jira.md)** - Full Jira Cloud integration with Scrum/Kanban support
+- **[GitHub Integration](integrations/github.md)** - GitHub integration for PRs and repository operations
+
 ---
 
 ## Jira Integration
@@ -47,7 +109,7 @@ rg integration install jira
 ### Configuration
 
 ```yaml
-# .retgit/config.yaml
+# .redgit/config.yaml
 active:
   task_management: jira
 
@@ -73,7 +135,7 @@ export JIRA_API_TOKEN="your-api-token"
 
 1. Go to [Atlassian API Tokens](https://id.atlassian.com/manage-profile/security/api-tokens)
 2. Click "Create API token"
-3. Give it a descriptive label (e.g., "RetGit")
+3. Give it a descriptive label (e.g., "RedGit")
 4. Copy the token
 5. Store as `JIRA_API_TOKEN` environment variable
 
@@ -133,7 +195,7 @@ rg integration install github
 ### Configuration
 
 ```yaml
-# .retgit/config.yaml
+# .redgit/config.yaml
 active:
   code_hosting: github
 
@@ -178,7 +240,7 @@ Creates a PR with:
 ### Task Management Integration
 
 ```python
-# retgit/integrations/linear.py
+# redgit/integrations/linear.py
 
 from .base import TaskManagementBase, Issue, Sprint, IntegrationType
 
@@ -218,7 +280,7 @@ class LinearIntegration(TaskManagementBase):
 ### Code Hosting Integration
 
 ```python
-# retgit/integrations/gitlab.py
+# redgit/integrations/gitlab.py
 
 from .base import CodeHostingBase, IntegrationType
 
@@ -242,7 +304,7 @@ class GitlabIntegration(CodeHostingBase):
 
 ### Register New Integration
 
-Add to `retgit/integrations/registry.py`:
+Add to `redgit/integrations/registry.py`:
 
 ```python
 BUILTIN_INTEGRATIONS = {
@@ -310,7 +372,7 @@ Integration install wizards use `install_schemas.json`:
    ```
 
 3. **Use project-specific config**
-   Each project can have different integration settings in `.retgit/config.yaml`
+   Each project can have different integration settings in `.redgit/config.yaml`
 
 4. **Enable only what you need**
    ```yaml
