@@ -1,8 +1,10 @@
 from typing import Optional
+import sys
 import typer
 from rich import print as rprint
 
 from redgit import __version__
+from redgit.splash import splash
 from redgit.commands.init import init_cmd
 from redgit.commands.propose import propose_cmd
 from redgit.commands.push import push_cmd
@@ -54,6 +56,15 @@ app.command("release")(release_shortcut)
 
 
 def main():
+    # Show splash animation on first run (skip with --no-anim, --help, --version)
+    skip_flags = ["--no-anim", "--help", "-h", "--version", "-v"]
+    if not any(flag in sys.argv for flag in skip_flags):
+        splash(total_duration=1.0)
+
+    # Remove --no-anim from argv before typer processes it
+    if "--no-anim" in sys.argv:
+        sys.argv.remove("--no-anim")
+
     app()
 
 if __name__ == "__main__":

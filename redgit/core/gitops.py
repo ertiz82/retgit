@@ -137,16 +137,132 @@ class GitOps:
         except ValueError:
             return False
 
+    def create_branch_and_commit(self, branch_name: str, files: List[str], message: str) -> bool:
+        """
+        Create a branch and commit specific files without losing working directory changes.
+
+        Strategy:
+        1. Stage ALL changes first (to preserve them)
+        2. Create branch from base
+        3. Reset staging area
+        4. Stage only the specific files for this commit
+        5. Commit
+        6. Return to base branch
+        7. Merge the feature branch
+        8. Working directory files remain intact for next group
+
+        Args:
+            branch_name: Name of the branch to create
+            files: List of files to commit
+            message: Commit message
+
+        Returns:
+            True if successful, False otherwise
+        """
+        base_branch = self.original_branch
+
+        # Filter out excluded files
+        safe_files = [f for f in files if not is_excluded(f) and Path(f).exists()]
+        if not safe_files:
+            return False
+
+        try:
+            # 1. Stash all changes (including untracked)
+            stash_created = False
+            try:
+                self.repo.git.stash("push", "-u", "-m", f"redgit-temp-{branch_name}")
+                stash_created = True
+            except Exception:
+                pass
+
+            # 2. Create and checkout feature branch from base
+            try:
+                self.repo.git.checkout("-b", branch_name, base_branch)
+            except Exception:
+                # Branch might exist, try checkout
+                try:
+                    self.repo.git.checkout(branch_name)
+                except Exception:
+                    # Try with suffix
+                    branch_name = f"{branch_name}-v2"
+                    self.repo.git.checkout("-b", branch_name, base_branch)
+
+            # 3. Pop stash to get files back
+            if stash_created:
+                try:
+                    self.repo.git.stash("pop")
+                except Exception:
+                    pass
+
+            # 4. Reset index (unstage everything)
+            try:
+                self.repo.git.reset("HEAD")
+            except Exception:
+                pass
+
+            # 5. Stage only the specific files
+            for f in safe_files:
+                try:
+                    self.repo.index.add([f])
+                except Exception:
+                    pass
+
+            # 6. Commit
+            self.repo.index.commit(message)
+
+            # 7. Stash remaining changes before switching
+            remaining_stashed = False
+            try:
+                self.repo.git.stash("push", "-u", "-m", f"redgit-remaining-{branch_name}")
+                remaining_stashed = True
+            except Exception:
+                pass
+
+            # 8. Checkout base branch
+            self.repo.git.checkout(base_branch)
+
+            # 9. Merge feature branch
+            try:
+                self.repo.git.merge(branch_name, "--no-ff", "-m", f"Merge {branch_name}")
+            except Exception:
+                # Fast-forward merge
+                self.repo.git.merge(branch_name)
+
+            # 10. Delete feature branch (it's merged now)
+            try:
+                self.repo.git.branch("-d", branch_name)
+            except Exception:
+                pass
+
+            # 11. Pop remaining stash
+            if remaining_stashed:
+                try:
+                    self.repo.git.stash("pop")
+                except Exception:
+                    pass
+
+            return True
+
+        except Exception as e:
+            # Try to recover - go back to base branch
+            try:
+                self.repo.git.checkout(base_branch)
+            except Exception:
+                pass
+            # Try to pop any stash
+            try:
+                self.repo.git.stash("pop")
+            except Exception:
+                pass
+            raise e
+
     @contextlib.contextmanager
     def isolated_branch(self, branch_name: str) -> Generator[None, None, None]:
         """
-        Create an isolated branch for committing specific files.
+        DEPRECATED: Use create_branch_and_commit instead.
 
-        Strategy:
-        1. Create branch from current HEAD (or orphan if no commits)
-        2. Stage and commit only the specified files inside the context
-        3. Return to original branch
-        4. Files committed to the branch are removed from working directory
+        Create an isolated branch for committing specific files.
+        This method has issues with file preservation across multiple groups.
         """
         is_new_repo = not self.has_commits()
         original_branch = self.original_branch
