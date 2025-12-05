@@ -1,0 +1,1 @@
+from .registry import detect_project_type

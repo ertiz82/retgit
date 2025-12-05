@@ -1,0 +1,111 @@
+{
+  "integrations": {
+    "jira": {
+      "name": "Jira",
+      "description": "Jira integration - Add comments, update issue status, and manage sprints",
+      "fields": [
+        {
+          "key": "site",
+          "prompt": "Jira site URL",
+          "type": "text",
+          "placeholder": "https://your-domain.atlassian.net",
+          "required": true
+        },
+        {
+          "key": "email",
+          "prompt": "Jira account email",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "token",
+          "prompt": "Jira API token",
+          "type": "secret",
+          "env_var": "JIRA_API_TOKEN",
+          "help": "Create at: https://id.atlassian.com/manage-profile/security/api-tokens",
+          "required": true
+        },
+        {
+          "key": "project_key",
+          "prompt": "Project key",
+          "type": "text",
+          "help": "e.g., SCRUM, PROJ (the prefix in issue IDs like SCRUM-123)",
+          "required": true
+        },
+        {
+          "key": "project_name",
+          "prompt": "Project name (optional)",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "board_type",
+          "prompt": "Board type",
+          "type": "choice",
+          "choices": ["scrum", "kanban", "none"],
+          "default": "scrum",
+          "help": "Select 'scrum' if using sprints, 'kanban' for continuous flow"
+        },
+        {
+          "key": "board_id",
+          "prompt": "Board ID (optional, will auto-detect if empty)",
+          "type": "text",
+          "help": "Find in board URL: /jira/software/projects/PROJ/boards/123",
+          "required": false
+        }
+      ],
+      "defaults": {
+        "api_version": "3",
+        "commit_prefix": "${project_key}",
+        "branch_pattern": "feature/${project_key}-{issue_number}-{description}",
+        "issue_types": {
+          "epic": "10001",
+          "task": "10003",
+          "story": "10004",
+          "feature": "10005",
+          "bug": "10007",
+          "subtask": "10002"
+        }
+      }
+    },
+    "github": {
+      "name": "GitHub",
+      "description": "GitHub integration - Create PRs and manage issues",
+      "fields": [
+        {
+          "key": "owner",
+          "prompt": "Repository owner (username or org)",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "repo",
+          "prompt": "Repository name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "token",
+          "prompt": "GitHub Personal Access Token",
+          "type": "secret",
+          "env_var": "GITHUB_TOKEN",
+          "help": "Create at: https://github.com/settings/tokens",
+          "required": true
+        },
+        {
+          "key": "default_base",
+          "prompt": "Default base branch for PRs",
+          "type": "choice",
+          "choices": ["main", "master", "develop"],
+          "default": "main"
+        },
+        {
+          "key": "auto_pr",
+          "prompt": "Automatically create PR after commit?",
+          "type": "confirm",
+          "default": false
+        }
+      ]
+    }
+  }
+}
