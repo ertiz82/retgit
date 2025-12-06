@@ -91,6 +91,8 @@ rg version show          # Show current version
 rg version release patch # Bump patch version
 rg release minor         # Shortcut for minor release
 rg release major         # Shortcut for major release
+rg release current       # Tag current version (no bump)
+rg release patch --force # Replace existing tag
 ```
 
 ### Changelog Plugin Commands
@@ -132,7 +134,7 @@ rg changelog show        # Show current changelog
 │  ├── VersionPlugin                                          │
 │  │   ├── rg version init                                    │
 │  │   ├── rg version show                                    │
-│  │   └── rg version release [patch|minor|major]             │
+│  │   └── rg version release [patch|minor|major|current]     │
 │  │                                                          │
 │  └── ChangelogPlugin                                        │
 │      ├── rg changelog init                                  │
@@ -193,6 +195,5 @@ def get_builtin_plugins():
 
 ## See Also
 
+- [Workflow Strategies](workflow-strategies.md)
 - [Integrations](integrations.md)
-- [Commands Reference](commands.md)
-- [Configuration Guide](configuration.md)

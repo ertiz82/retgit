@@ -69,7 +69,55 @@ rg release minor
 rg version release major
 # or shortcut:
 rg release major
+
+# Tag current version without bumping
+rg release current
 ```
+
+### Release Current Version
+
+Tag the current version without bumping. Useful when:
+- Version files were updated manually
+- Re-releasing after a failed push
+- Creating a tag for an existing version
+
+```bash
+rg release current
+```
+
+Output:
+```
+Release current: 0.2.6 (no version bump)
+
+Release v0.2.6? [y/n]: y
+
+Skipping version file updates (current level)
+
+Creating git tag...
+  ✓ Tag created: v0.2.6
+
+┌─────────────────────────────────┐
+│ Released v0.2.6                 │
+│                                 │
+│ Run `rg push` to push the       │
+│ release and tags to remote.     │
+└─────────────────────────────────┘
+```
+
+### Force Replace Existing Tag
+
+If a tag already exists, use `--force` to replace it:
+
+```bash
+rg release patch --force
+# or for current version:
+rg release current --force
+```
+
+This will:
+1. Delete the existing local tag
+2. Delete the existing remote tag (if exists)
+3. Create a new tag
 
 ### Dry Run
 
@@ -252,9 +300,15 @@ rg version init
 
 ### Tag Already Exists
 
-Delete the existing tag if needed:
+Use the `--force` flag to replace an existing tag:
+```bash
+rg release patch --force
+```
+
+Or manually delete and recreate:
 ```bash
 git tag -d v1.0.0
+git push origin :refs/tags/v1.0.0
 rg release major
 ```
 
@@ -262,4 +316,4 @@ rg release major
 
 - [Plugins Overview](../plugins.md)
 - [Changelog Plugin](changelog.md)
-- [Push Command](../commands/push.md)
+- [Workflow Strategies](../workflow-strategies.md)
