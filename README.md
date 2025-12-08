@@ -10,6 +10,7 @@
   <a href="https://pypi.org/project/redgit/"><img src="https://img.shields.io/pypi/v/redgit.svg" alt="PyPI version"></a>
   <a href="https://pypi.org/project/redgit/"><img src="https://img.shields.io/pypi/pyversions/redgit.svg" alt="Python versions"></a>
   <a href="https://github.com/ertiz82/redgit/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://buymeacoffee.com/ertiz"><img src="https://img.shields.io/badge/Support-Buy%20Me%20a%20Coffee-yellow" alt="Donate"></a>
 </p>
 
 ---
