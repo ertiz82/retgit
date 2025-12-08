@@ -26,6 +26,7 @@ def _get_integration_type_name(integration_type: IntegrationType) -> str:
         IntegrationType.TASK_MANAGEMENT: "task_management",
         IntegrationType.CODE_HOSTING: "code_hosting",
         IntegrationType.NOTIFICATION: "notification",
+        IntegrationType.ANALYSIS: "analysis",
     }
     return type_names.get(integration_type, "unknown")
 
@@ -36,6 +37,7 @@ def _get_integration_type_label(integration_type: IntegrationType) -> str:
         IntegrationType.TASK_MANAGEMENT: "Task Management",
         IntegrationType.CODE_HOSTING: "Code Hosting",
         IntegrationType.NOTIFICATION: "Notification",
+        IntegrationType.ANALYSIS: "Analysis",
     }
     return type_labels.get(integration_type, "Unknown")
 
@@ -237,6 +239,49 @@ def _prompt_field(field: dict):
 
     elif field_type == "confirm":
         return typer.confirm(f"   {prompt_text}", default=default or False)
+
+    elif field_type == "integration_select":
+        # Select from available integrations of specific type
+        integration_type_str = field.get("integration_type", "")
+        config = ConfigManager().load()
+        integrations_config = config.get("integrations", {})
+        active_config = config.get("active", {})
+
+        # Find available integrations of this type
+        available = []
+        for int_name, itype in BUILTIN_INTEGRATIONS.items():
+            type_name = _get_integration_type_name(itype)
+            if type_name == integration_type_str:
+                # Check if configured
+                if integrations_config.get(int_name, {}).get("enabled"):
+                    available.append(int_name)
+
+        if not available:
+            typer.echo(f"   {prompt_text}")
+            typer.echo(f"   [dim]No {integration_type_str} integrations available[/dim]")
+            if not required:
+                typer.echo(f"   [dim]Skipping...[/dim]")
+                return None
+            else:
+                typer.secho(f"   ❌ No {integration_type_str} integrations configured.", fg=typer.colors.RED)
+                typer.echo(f"   💡 Install one first: rg integration install jira")
+                return None
+
+        # Show options
+        typer.echo(f"   {prompt_text}")
+        typer.echo(f"     [0] None (skip)")
+        for i, int_name in enumerate(available, 1):
+            active_marker = " (active)" if active_config.get(integration_type_str) == int_name else ""
+            typer.echo(f"     [{i}] {int_name}{active_marker}")
+
+        choice_idx = typer.prompt(f"   Select", default="0")
+        try:
+            idx = int(choice_idx)
+            if idx == 0:
+                return None
+            return available[idx - 1] if 0 < idx <= len(available) else None
+        except (ValueError, IndexError):
+            return None
 
     return None
 

@@ -116,3 +116,101 @@ def get_active_plugin(plugins: Dict[str, Any]) -> Optional[Any]:
         if hasattr(plugin, "match") and plugin.match():
             return plugin
     return None
+
+
+def get_plugin_commands(name: str) -> Optional[Any]:
+    """
+    Get CLI commands (typer app) for a plugin.
+
+    Args:
+        name: Plugin name (e.g., 'version', 'changelog')
+
+    Returns:
+        Typer app if plugin has commands, None otherwise
+    """
+    import importlib
+
+    # Try to import commands module from plugin package
+    try:
+        module_name = f"redgit.plugins.{name}.commands"
+        module = importlib.import_module(module_name)
+
+        # Look for {name}_app typer instance
+        app_name = f"{name}_app"
+        if hasattr(module, app_name):
+            return getattr(module, app_name)
+    except ImportError:
+        pass
+
+    return None
+
+
+def get_enabled_plugin_commands(config: dict) -> Dict[str, Any]:
+    """
+    Get CLI commands for all enabled plugins.
+
+    Args:
+        config: Full config dict
+
+    Returns:
+        Dict of plugin_name -> typer_app
+    """
+    commands = {}
+    plugins_config = config.get("plugins", {})
+    enabled = plugins_config.get("enabled", [])
+
+    for name in enabled:
+        app = get_plugin_commands(name)
+        if app:
+            commands[name] = app
+
+    return commands
+
+
+def get_plugin_shortcuts(name: str) -> Dict[str, Any]:
+    """
+    Get shortcut commands from a plugin.
+
+    Args:
+        name: Plugin name
+
+    Returns:
+        Dict of shortcut_name -> command_function
+    """
+    import importlib
+
+    shortcuts = {}
+    try:
+        module_name = f"redgit.plugins.{name}.commands"
+        module = importlib.import_module(module_name)
+
+        # Look for functions ending with _shortcut
+        for attr_name in dir(module):
+            if attr_name.endswith("_shortcut"):
+                shortcut_name = attr_name.replace("_shortcut", "")
+                shortcuts[shortcut_name] = getattr(module, attr_name)
+    except ImportError:
+        pass
+
+    return shortcuts
+
+
+def get_all_plugin_shortcuts(config: dict) -> Dict[str, Any]:
+    """
+    Get all shortcut commands from enabled plugins.
+
+    Args:
+        config: Full config dict
+
+    Returns:
+        Dict of shortcut_name -> command_function
+    """
+    all_shortcuts = {}
+    plugins_config = config.get("plugins", {})
+    enabled = plugins_config.get("enabled", [])
+
+    for name in enabled:
+        shortcuts = get_plugin_shortcuts(name)
+        all_shortcuts.update(shortcuts)
+
+    return all_shortcuts

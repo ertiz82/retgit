@@ -17,6 +17,7 @@ class IntegrationType(Enum):
     TASK_MANAGEMENT = "task_management"
     CODE_HOSTING = "code_hosting"
     NOTIFICATION = "notification"
+    ANALYSIS = "analysis"
 
 
 @dataclass
@@ -244,6 +245,49 @@ class NotificationBase(IntegrationBase):
 
         Returns:
             True if successful
+        """
+        pass
+
+
+class AnalysisBase(IntegrationBase):
+    """
+    Base class for analysis integrations.
+
+    Analyzes project structure, generates task plans, etc.
+    """
+
+    integration_type = IntegrationType.ANALYSIS
+
+    # Optional linked task management integration
+    task_management: Optional[str] = None
+
+    @abstractmethod
+    def analyze(self, path: str = ".") -> Dict[str, Any]:
+        """
+        Analyze project structure and return analysis results.
+
+        Returns:
+            Analysis results dict
+        """
+        pass
+
+    @abstractmethod
+    def get_analysis(self) -> Optional[Dict[str, Any]]:
+        """
+        Get stored analysis results.
+
+        Returns:
+            Stored analysis or None
+        """
+        pass
+
+    @abstractmethod
+    def generate_plan(self, analysis: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """
+        Generate task plan from analysis.
+
+        Returns:
+            List of task dicts with dependencies, estimates, etc.
         """
         pass
 

@@ -11,7 +11,8 @@ from .base import (
     IntegrationType,
     TaskManagementBase,
     CodeHostingBase,
-    NotificationBase
+    NotificationBase,
+    AnalysisBase
 )
 
 # Builtin integrations directory (inside package)
@@ -21,6 +22,7 @@ BUILTIN_INTEGRATIONS_DIR = Path(__file__).parent
 BUILTIN_INTEGRATIONS = {
     "jira": IntegrationType.TASK_MANAGEMENT,
     "github": IntegrationType.CODE_HOSTING,
+    "scout": IntegrationType.ANALYSIS,
     # Future integrations:
     # "linear": IntegrationType.TASK_MANAGEMENT,
     # "asana": IntegrationType.TASK_MANAGEMENT,
@@ -151,6 +153,32 @@ def get_code_hosting(config: dict, active_name: Optional[str] = None) -> Optiona
     return None
 
 
+def get_analysis(config: dict, active_name: Optional[str] = None) -> Optional[AnalysisBase]:
+    """
+    Get the active analysis integration.
+
+    Args:
+        config: Full config dict
+        active_name: Override active integration name
+
+    Returns:
+        AnalysisBase instance or None
+    """
+    if not active_name:
+        active_name = config.get("active", {}).get("analysis")
+
+    if not active_name:
+        return None
+
+    integration_config = config.get("integrations", {}).get(active_name, {})
+    integration = load_integration_by_name(active_name, integration_config)
+
+    if integration and isinstance(integration, AnalysisBase):
+        return integration
+
+    return None
+
+
 def _load_integration(name: str) -> Optional[IntegrationBase]:
     """Load an integration by name from builtin integrations"""
     # Check for single file integration (name.py)
@@ -169,9 +197,10 @@ def _load_integration(name: str) -> Optional[IntegrationBase]:
 def _load_integration_from_file(path: Path, name: str) -> Optional[IntegrationBase]:
     """Load integration from a file path"""
     try:
-        spec = importlib.util.spec_from_file_location(f"integration_{name}", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # Use proper module import to support relative imports
+        import importlib
+        module_name = f"redgit.integrations.{name}"
+        module = importlib.import_module(module_name)
 
         # Look for {Name}Integration class
         class_name = f"{name.capitalize()}Integration"
@@ -183,3 +212,90 @@ def _load_integration_from_file(path: Path, name: str) -> Optional[IntegrationBa
         pass
 
     return None
+
+
+# ==================== Dynamic Command Loading ====================
+
+def get_integration_commands(name: str):
+    """
+    Get CLI commands (typer app) for an integration.
+
+    Looks for:
+    1. redgit.integrations.{name}.commands module with {name}_app
+    2. redgit.integrations.{name}.cli module with {name}_app
+
+    Returns:
+        typer.Typer instance or None
+    """
+    import importlib
+
+    # Try commands module first
+    for module_suffix in ["commands", "cli"]:
+        try:
+            module_name = f"redgit.integrations.{name}.{module_suffix}"
+            module = importlib.import_module(module_name)
+
+            # Look for {name}_app
+            app_name = f"{name}_app"
+            if hasattr(module, app_name):
+                return getattr(module, app_name)
+
+            # Also try just 'app'
+            if hasattr(module, "app"):
+                return getattr(module, "app")
+
+        except ImportError:
+            continue
+        except Exception:
+            continue
+
+    return None
+
+
+def get_active_integration_commands(config: dict) -> Dict[str, Any]:
+    """
+    Get CLI commands for all active integrations.
+
+    Args:
+        config: Full config dict
+
+    Returns:
+        Dict of integration_name -> typer.Typer app
+    """
+    commands = {}
+    active = config.get("active", {})
+    integrations_config = config.get("integrations", {})
+
+    # Collect all active integration names
+    active_names = set(active.values())
+
+    # Also check enabled integrations
+    for name, cfg in integrations_config.items():
+        if isinstance(cfg, dict) and cfg.get("enabled"):
+            active_names.add(name)
+
+    # Load commands for each active integration
+    for name in active_names:
+        if name:
+            app = get_integration_commands(name)
+            if app:
+                commands[name] = app
+
+    return commands
+
+
+def get_all_integration_commands() -> Dict[str, Any]:
+    """
+    Get CLI commands for all available integrations (regardless of activation).
+
+    Returns:
+        Dict of integration_name -> typer.Typer app
+    """
+    commands = {}
+
+    for name in get_builtin_integrations():
+        app = get_integration_commands(name)
+        if app:
+            commands[name] = app
+
+    return commands

@@ -106,6 +106,35 @@
           "default": false
         }
       ]
+    },
+    "scout": {
+      "name": "Scout",
+      "description": "AI-powered project analysis and task planning",
+      "fields": [
+        {
+          "key": "task_management",
+          "prompt": "Link to task management integration?",
+          "type": "integration_select",
+          "integration_type": "task_management",
+          "required": false,
+          "help": "Select a task management integration to sync generated tasks"
+        },
+        {
+          "key": "analysis_depth",
+          "prompt": "Analysis depth",
+          "type": "choice",
+          "choices": ["brief", "standard", "detailed"],
+          "default": "detailed",
+          "help": "How thorough should the analysis be?"
+        },
+        {
+          "key": "max_files",
+          "prompt": "Maximum files to analyze",
+          "type": "text",
+          "default": "500",
+          "help": "Limit the number of files scanned for large projects"
+        }
+      ]
     }
   }
 }
