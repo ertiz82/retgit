@@ -7,6 +7,7 @@ RedGit supports various integrations for task management and code hosting platfo
 | Integration | Type | Status | Documentation |
 |-------------|------|--------|---------------|
 | Jira | Task Management | ✅ Available | [jira.md](integrations/jira.md) |
+| Scout | AI Project Planning | ✅ Available | [scout.md](integrations/scout.md) |
 | GitHub | Code Hosting | ✅ Available | [github.md](integrations/github.md) |
 | Linear | Task Management | 🔜 Planned | - |
 | GitLab | Code Hosting | 🔜 Planned | - |
@@ -51,6 +52,9 @@ rg integration list
 │  ├── GitLabIntegration (planned)                            │
 │  └── BitbucketIntegration (planned)                         │
 │                                                             │
+│  AIIntegrationBase                                          │
+│  └── ScoutIntegration (AI project planning & team mgmt)     │
+│                                                             │
 │  NotificationBase                                           │
 │  ├── SlackIntegration (planned)                             │
 │  └── DiscordIntegration (planned)                           │
@@ -86,12 +90,14 @@ Sensitive data should be stored in environment variables:
 |-------------|---------------------|
 | Jira | `JIRA_API_TOKEN` |
 | GitHub | `GITHUB_TOKEN` |
+| Scout | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` |
 
 ---
 
 ## Detailed Documentation
 
 - **[Jira Integration](integrations/jira.md)** - Full Jira Cloud integration with Scrum/Kanban support
+- **[Scout Integration](integrations/scout.md)** - AI-powered project planning, team management, and task sync
 - **[GitHub Integration](integrations/github.md)** - GitHub integration for PRs and repository operations
 
 ---
