@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=3" alt="RedGit Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=4" alt="RedGit Logo" width="400"/>
 </p>
 
 <p align="center">
@@ -128,7 +128,7 @@ Interactive wizard will help you configure:
 Analyze changes and create commits.
 
 ```bash
-# Basic usage
+# Basic usage - AI analyzes and groups changes
 rg propose
 
 # With specific prompt/plugin
@@ -136,6 +136,10 @@ rg propose -p laravel
 
 # Skip task management
 rg propose --no-task
+
+# Link all changes to a specific task (single commit)
+rg propose --task 123
+rg propose -t PROJ-123
 ```
 
 **What it does:**
@@ -144,6 +148,25 @@ rg propose --no-task
 3. Uses AI to group files and match with issues
 4. Creates branches and commits for each group
 5. Transitions issues to "In Progress"
+
+**Using `--task` flag:**
+
+When you know which task you're working on, use `--task` to skip AI analysis and commit all changes directly:
+
+```bash
+# Using just the issue number (project key added automatically)
+rg propose --task 123
+# → Creates branch: feature/PROJ-123-issue-title
+# → Commits all changes with "PROJ-123: Issue Title"
+
+# Using full issue key
+rg propose -t PROJ-123
+```
+
+This is useful when:
+- You're working on a single task
+- You want to skip AI analysis
+- You want all changes in one commit
 
 ### `rg push`
 
