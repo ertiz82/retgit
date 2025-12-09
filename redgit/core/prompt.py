@@ -31,7 +31,8 @@ class PromptManager:
         changes: List[Dict],
         prompt_name: Optional[str] = None,
         plugin_prompt: Optional[str] = None,
-        active_issues: Optional[List] = None
+        active_issues: Optional[List] = None,
+        issue_language: Optional[str] = None
     ) -> str:
         """
         Build final prompt.
@@ -41,6 +42,7 @@ class PromptManager:
             prompt_name: Prompt name from CLI (None if not specified)
             plugin_prompt: Prompt from active plugin (if any)
             active_issues: List of active issues from task management
+            issue_language: Language for Jira issue titles (e.g., "tr", "en")
 
         Returns:
             Complete prompt (template + files + issues + response schema)
@@ -64,7 +66,10 @@ class PromptManager:
             prompt += "\n\n" + issues_section
 
         # Always append response schema
-        prompt += "\n" + self._get_response_schema(has_issues=bool(active_issues))
+        prompt += "\n" + self._get_response_schema(
+            has_issues=bool(active_issues),
+            issue_language=issue_language
+        )
 
         return prompt
 
@@ -196,10 +201,35 @@ class PromptManager:
 
         return "\n".join(lines)
 
-    def _get_response_schema(self, has_issues: bool = False) -> str:
-        """Get response schema with optional issue_key field"""
+    def _get_response_schema(
+        self,
+        has_issues: bool = False,
+        issue_language: Optional[str] = None
+    ) -> str:
+        """Get response schema with optional issue_key and issue_title fields"""
         if has_issues:
-            return RESPONSE_SCHEMA_WITH_ISSUES
+            schema = RESPONSE_SCHEMA_WITH_ISSUES
+            if issue_language:
+                # Add language instruction for issue_title
+                lang_names = {
+                    "tr": "Turkish",
+                    "en": "English",
+                    "de": "German",
+                    "fr": "French",
+                    "es": "Spanish",
+                    "pt": "Portuguese",
+                    "it": "Italian",
+                    "ru": "Russian",
+                    "zh": "Chinese",
+                    "ja": "Japanese",
+                    "ko": "Korean",
+                    "ar": "Arabic"
+                }
+                lang_name = lang_names.get(issue_language, issue_language)
+                schema = RESPONSE_SCHEMA_WITH_ISSUES_AND_LANGUAGE.format(
+                    issue_language=lang_name
+                )
+            return schema
         return RESPONSE_SCHEMA
 
     @staticmethod
@@ -259,6 +289,49 @@ Respond with a JSON array. Each object represents a commit group:
 2. One group per distinct change
 3. Match groups to Active Issues when the changes clearly relate to the issue
 4. If no issue matches, set issue_key to null
+
+Return ONLY the JSON array, no other text.
+"""
+
+# Extended response schema with issue_key and issue_title (with language support)
+RESPONSE_SCHEMA_WITH_ISSUES_AND_LANGUAGE = """
+## Response Format
+
+Respond with a JSON array. Each object represents a commit group:
+
+```json
+[
+  {{
+    "files": ["path/to/file1.py", "path/to/file2.py"],
+    "branch": "feature/short-description",
+    "commit_title": "feat: add user authentication",
+    "commit_body": "- Add login endpoint\\n- Add JWT token validation",
+    "purpose": "User authentication feature",
+    "issue_key": "PROJ-123",
+    "issue_title": "Kullanıcı kimlik doğrulama özelliği eklendi"
+  }}
+]
+```
+
+### Fields:
+- **files**: Array of file paths that belong together
+- **branch**: Suggested branch name (will be overridden if issue_key matches)
+- **commit_title**: Short commit message in English (follow conventional commits)
+- **commit_body**: Detailed description with bullet points in English
+- **purpose**: Brief explanation of why these files are grouped
+- **issue_key**: Matching issue key from Active Issues list (null if no match)
+- **issue_title**: **IMPORTANT: Write this in {issue_language}!** This is the title for creating a new Jira issue. Must be in {issue_language} language. (null if issue_key is set or no issue needed)
+
+### Language Rules:
+- commit_title and commit_body: Always in English
+- issue_title: Always in {issue_language}
+
+### Grouping Rules:
+1. Group files by logical change/feature
+2. One group per distinct change
+3. Match groups to Active Issues when the changes clearly relate to the issue
+4. If no issue matches and changes warrant a new issue, provide issue_title in {issue_language}
+5. If an existing issue matches, set issue_key and leave issue_title as null
 
 Return ONLY the JSON array, no other text.
 """
