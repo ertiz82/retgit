@@ -432,9 +432,15 @@ class JiraIntegration(TaskManagementBase):
 
             transitions = response.json().get("transitions", [])
 
-            # Try exact match first
+            # Try exact match first (Transition Name)
             for t in transitions:
                 if t["name"].lower() == status.lower():
+                    self.session.post(url, json={"transition": {"id": t["id"]}})
+                    return True
+
+            # Check for Target Status Name (e.g. transition "Start Progress" -> status "In Progress")
+            for t in transitions:
+                if t.get("to", {}).get("name", "").lower() == status.lower():
                     self.session.post(url, json={"transition": {"id": t["id"]}})
                     return True
 
@@ -443,7 +449,12 @@ class JiraIntegration(TaskManagementBase):
             if status_lower in self.status_map:
                 for status_name in self.status_map[status_lower]:
                     for t in transitions:
+                        # Check Transition Name
                         if t["name"].lower() == status_name.lower():
+                            self.session.post(url, json={"transition": {"id": t["id"]}})
+                            return True
+                        # Check Target Status Name
+                        if t.get("to", {}).get("name", "").lower() == status_name.lower():
                             self.session.post(url, json={"transition": {"id": t["id"]}})
                             return True
 

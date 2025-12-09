@@ -340,6 +340,56 @@ Active issues from Jira:
 Select issues to work on (comma-separated, or 'all'):
 ```
 
+### Direct Task Commit (--task flag)
+
+When you know which task you're working on, use `--task` to skip AI analysis and commit all changes to a specific issue:
+
+```bash
+# Using just the issue number (project key added automatically)
+rg propose --task 123
+
+# Using full issue key
+rg propose -t PROJ-123
+```
+
+This will:
+1. Fetch the issue details from Jira (title, description, status)
+2. Create a branch using `branch_pattern` (e.g., `feature/PROJ-123-add-user-auth`)
+3. Commit all changes with the issue title as commit message
+4. Add a comment to the Jira issue
+5. Transition the issue to "In Progress" (if `auto_transition` is enabled)
+
+**Example Output:**
+```
+📋 Task management: jira
+✓ Found: PROJ-123 - Add user authentication
+   Status: To Do
+
+📁 5 files will be committed:
+   • src/auth/login.py
+   • src/auth/jwt.py
+   • tests/test_auth.py
+   ... and 2 more
+
+📝 Commit:
+   Title: PROJ-123: Add user authentication
+   Branch: feature/PROJ-123-add-user-authentication
+   Files: 5
+
+Proceed? [Y/n]: y
+✓ Committed and merged feature/PROJ-123-add-user-authentication
+✓ Comment added to PROJ-123
+→ PROJ-123 moved to In Progress
+
+✅ All changes committed to PROJ-123
+Run 'rg push' to push to remote
+```
+
+**When to use `--task`:**
+- You're working on a single task
+- You want to skip AI analysis for faster commits
+- You want all changes in one commit linked to a specific issue
+
 ### Push and Complete Issues
 
 ```bash
