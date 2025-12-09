@@ -64,5 +64,5 @@
 
   <!-- Version badge -->
   <rect x="320" y="80" width="60" height="20" rx="4" fill="#4ECDC4"/>
-  <text x="350" y="94" font-family="monospace" font-size="10" fill="#1a1a2e" text-anchor="middle">v0.3.16</text>
+  <text x="350" y="94" font-family="monospace" font-size="10" fill="#1a1a2e" text-anchor="middle">v0.3.17</text>
 </svg>

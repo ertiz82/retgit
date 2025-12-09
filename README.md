@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="RedGit Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=2" alt="RedGit Logo" width="400"/>
 </p>
 
 <p align="center">
@@ -493,7 +493,7 @@ Contributions are welcome! Please read our contributing guidelines before submit
 ---
 
 <p align="center">
-  <img src="assets/red-kit.png" alt="Red Kit - RedGit Mascot" width="150"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/red-kit.png?v=2" alt="Red Kit - RedGit Mascot" width="150"/>
 </p>
 
 <p align="center">
