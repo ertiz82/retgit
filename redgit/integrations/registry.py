@@ -1,10 +1,21 @@
 """
-Integration registry - loads and manages integrations by type.
+Integration registry - dynamically loads and manages integrations.
+
+Supports:
+1. Builtin integrations: redgit/integrations/{name}.py or {name}/__init__.py
+2. Custom integrations: .redgit/integrations/{name}.py or {name}/__init__.py
+
+Integration classes must:
+- Inherit from IntegrationBase (or TaskManagementBase, CodeHostingBase, etc.)
+- Be named {Name}Integration (e.g., JiraIntegration, MyCustomIntegration)
+- Have a 'name' class attribute matching the file/folder name
 """
 
+import importlib
 import importlib.util
+import inspect
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Type
 
 from .base import (
     IntegrationBase,
@@ -18,46 +29,212 @@ from .base import (
 # Builtin integrations directory (inside package)
 BUILTIN_INTEGRATIONS_DIR = Path(__file__).parent
 
-# Available builtin integrations with their types
-BUILTIN_INTEGRATIONS = {
-    "jira": IntegrationType.TASK_MANAGEMENT,
-    "github": IntegrationType.CODE_HOSTING,
-    "scout": IntegrationType.ANALYSIS,
-    # Future integrations:
-    # "linear": IntegrationType.TASK_MANAGEMENT,
-    # "asana": IntegrationType.TASK_MANAGEMENT,
-    # "gitlab": IntegrationType.CODE_HOSTING,
-    # "slack": IntegrationType.NOTIFICATION,
-}
+# Custom integrations directory (in project's .redgit folder)
+CUSTOM_INTEGRATIONS_DIR = Path(".redgit/integrations")
+
+# Cache for discovered integrations
+_integration_cache: Dict[str, Type[IntegrationBase]] = {}
+_discovery_done = False
+
+
+def _discover_integrations(force: bool = False) -> Dict[str, Type[IntegrationBase]]:
+    """
+    Discover all available integrations from builtin and custom directories.
+
+    Returns:
+        Dict of integration_name -> integration_class
+    """
+    global _integration_cache, _discovery_done
+
+    if _discovery_done and not force:
+        return _integration_cache
+
+    _integration_cache = {}
+
+    # 1. Discover builtin integrations
+    _discover_from_directory(BUILTIN_INTEGRATIONS_DIR, is_builtin=True)
+
+    # 2. Discover custom integrations (can override builtin)
+    if CUSTOM_INTEGRATIONS_DIR.exists():
+        _discover_from_directory(CUSTOM_INTEGRATIONS_DIR, is_builtin=False)
+
+    _discovery_done = True
+    return _integration_cache
+
+
+def _discover_from_directory(directory: Path, is_builtin: bool = False):
+    """Discover integrations from a directory."""
+    global _integration_cache
+
+    if not directory.exists():
+        return
+
+    # Skip these files/folders
+    skip_names = {"__init__", "__pycache__", "base", "registry", "install_schemas"}
+
+    for item in directory.iterdir():
+        name = item.stem
+
+        if name.startswith("_") or name in skip_names:
+            continue
+
+        # Single file integration: name.py
+        if item.suffix == ".py" and item.is_file():
+            cls = _load_class_from_file(item, name, is_builtin)
+            if cls:
+                _integration_cache[name] = cls
+
+        # Package integration: name/__init__.py
+        elif item.is_dir() and (item / "__init__.py").exists():
+            cls = _load_class_from_file(item / "__init__.py", name, is_builtin)
+            if cls:
+                _integration_cache[name] = cls
+
+
+def _load_class_from_file(
+    path: Path,
+    name: str,
+    is_builtin: bool = False
+) -> Optional[Type[IntegrationBase]]:
+    """Load integration class from a file."""
+    try:
+        if is_builtin:
+            # Use proper module import for builtin integrations
+            module_name = f"redgit.integrations.{name}"
+            module = importlib.import_module(module_name)
+        else:
+            # Dynamic import for custom integrations
+            spec = importlib.util.spec_from_file_location(
+                f"custom_integration_{name}",
+                path
+            )
+            if not spec or not spec.loader:
+                return None
+
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+        # Find the integration class
+        return _find_integration_class(module, name)
+
+    except Exception:
+        return None
+
+
+def _find_integration_class(module, name: str) -> Optional[Type[IntegrationBase]]:
+    """Find the integration class in a module."""
+    # Try {Name}Integration first (e.g., JiraIntegration)
+    class_name = f"{name.capitalize()}Integration"
+    if hasattr(module, class_name):
+        cls = getattr(module, class_name)
+        if _is_valid_integration_class(cls):
+            return cls
+
+    # Try CamelCase name (e.g., MyCustomIntegration for my_custom)
+    camel_name = "".join(word.capitalize() for word in name.split("_")) + "Integration"
+    if hasattr(module, camel_name):
+        cls = getattr(module, camel_name)
+        if _is_valid_integration_class(cls):
+            return cls
+
+    # Search all classes in module
+    for attr_name in dir(module):
+        if attr_name.startswith("_"):
+            continue
+        attr = getattr(module, attr_name)
+        if _is_valid_integration_class(attr):
+            # Verify the class's name attribute matches
+            if hasattr(attr, "name") and attr.name == name:
+                return attr
+
+    return None
+
+
+def _is_valid_integration_class(cls) -> bool:
+    """Check if a class is a valid integration class."""
+    return (
+        inspect.isclass(cls) and
+        issubclass(cls, IntegrationBase) and
+        cls is not IntegrationBase and
+        cls is not TaskManagementBase and
+        cls is not CodeHostingBase and
+        cls is not NotificationBase and
+        cls is not AnalysisBase
+    )
+
+
+# ==================== Public API ====================
+
+def get_integration_class(name: str) -> Optional[Type[IntegrationBase]]:
+    """
+    Get an integration class by name.
+
+    Args:
+        name: Integration name (e.g., "jira", "my_custom")
+
+    Returns:
+        Integration class or None
+    """
+    integrations = _discover_integrations()
+    return integrations.get(name)
+
+
+def get_all_integrations() -> Dict[str, Type[IntegrationBase]]:
+    """
+    Get all available integrations.
+
+    Returns:
+        Dict of integration_name -> integration_class
+    """
+    return _discover_integrations()
 
 
 def get_builtin_integrations() -> List[str]:
-    """List available builtin integrations"""
-    available = []
-    for name in BUILTIN_INTEGRATIONS.keys():
-        # Check for single file integration (name.py)
-        if (BUILTIN_INTEGRATIONS_DIR / f"{name}.py").exists():
-            available.append(name)
-        # Check for package integration (name/__init__.py)
-        elif (BUILTIN_INTEGRATIONS_DIR / name / "__init__.py").exists():
-            available.append(name)
-    return available
+    """List available builtin integration names."""
+    return list(_discover_integrations().keys())
 
 
 def get_integrations_by_type(integration_type: IntegrationType) -> List[str]:
     """List available integrations of a specific type."""
-    available = []
-    for name, itype in BUILTIN_INTEGRATIONS.items():
-        if itype != integration_type:
-            continue
-        # Check for single file integration (name.py)
-        if (BUILTIN_INTEGRATIONS_DIR / f"{name}.py").exists():
-            available.append(name)
-        # Check for package integration (name/__init__.py)
-        elif (BUILTIN_INTEGRATIONS_DIR / name / "__init__.py").exists():
-            available.append(name)
-    return available
+    integrations = _discover_integrations()
+    result = []
 
+    for name, cls in integrations.items():
+        if hasattr(cls, "integration_type") and cls.integration_type == integration_type:
+            result.append(name)
+
+    return result
+
+
+def get_integration_type(name: str) -> Optional[IntegrationType]:
+    """Get the type of an integration by name."""
+    cls = get_integration_class(name)
+    if cls and hasattr(cls, "integration_type"):
+        return cls.integration_type
+    return None
+
+
+# Backward compatibility
+BUILTIN_INTEGRATIONS = property(lambda self: {
+    name: cls.integration_type
+    for name, cls in _discover_integrations().items()
+    if hasattr(cls, "integration_type")
+})
+
+
+def _get_builtin_integrations_dict() -> Dict[str, IntegrationType]:
+    """Get dict of integration names to their types."""
+    return {
+        name: cls.integration_type
+        for name, cls in _discover_integrations().items()
+        if hasattr(cls, "integration_type")
+    }
+
+# For backward compatibility - expose as module-level dict
+BUILTIN_INTEGRATIONS = _get_builtin_integrations_dict()
+
+
+# ==================== Loading Functions ====================
 
 def load_integrations(config: dict) -> Dict[str, IntegrationBase]:
     """
@@ -72,12 +249,10 @@ def load_integrations(config: dict) -> Dict[str, IntegrationBase]:
     integrations = {}
 
     for name, cfg in config.items():
-        if isinstance(cfg, dict):
-            integration = _load_integration(name)
-            if integration:
-                integration.setup(cfg)
-                if integration.enabled:
-                    integrations[name] = integration
+        if isinstance(cfg, dict) and cfg.get("enabled", True):
+            integration = load_integration_by_name(name, cfg)
+            if integration and integration.enabled:
+                integrations[name] = integration
 
     return integrations
 
@@ -93,11 +268,12 @@ def load_integration_by_name(name: str, config: dict) -> Optional[IntegrationBas
     Returns:
         Integration instance or None
     """
-    integration = _load_integration(name)
-    if integration:
-        integration.setup(config)
-        if integration.enabled:
-            return integration
+    cls = get_integration_class(name)
+    if cls:
+        instance = cls()
+        instance.setup(config)
+        if instance.enabled:
+            return instance
     return None
 
 
@@ -179,41 +355,6 @@ def get_analysis(config: dict, active_name: Optional[str] = None) -> Optional[An
     return None
 
 
-def _load_integration(name: str) -> Optional[IntegrationBase]:
-    """Load an integration by name from builtin integrations"""
-    # Check for single file integration (name.py)
-    builtin_path = BUILTIN_INTEGRATIONS_DIR / f"{name}.py"
-    if builtin_path.exists():
-        return _load_integration_from_file(builtin_path, name)
-
-    # Check for package integration (name/__init__.py)
-    package_path = BUILTIN_INTEGRATIONS_DIR / name / "__init__.py"
-    if package_path.exists():
-        return _load_integration_from_file(package_path, name)
-
-    return None
-
-
-def _load_integration_from_file(path: Path, name: str) -> Optional[IntegrationBase]:
-    """Load integration from a file path"""
-    try:
-        # Use proper module import to support relative imports
-        import importlib
-        module_name = f"redgit.integrations.{name}"
-        module = importlib.import_module(module_name)
-
-        # Look for {Name}Integration class
-        class_name = f"{name.capitalize()}Integration"
-        if hasattr(module, class_name):
-            cls = getattr(module, class_name)
-            return cls()
-
-    except Exception:
-        pass
-
-    return None
-
-
 # ==================== Dynamic Command Loading ====================
 
 def get_integration_commands(name: str):
@@ -223,13 +364,12 @@ def get_integration_commands(name: str):
     Looks for:
     1. redgit.integrations.{name}.commands module with {name}_app
     2. redgit.integrations.{name}.cli module with {name}_app
+    3. Custom: .redgit/integrations/{name}/commands.py with {name}_app
 
     Returns:
         typer.Typer instance or None
     """
-    import importlib
-
-    # Try commands module first
+    # Try builtin first
     for module_suffix in ["commands", "cli"]:
         try:
             module_name = f"redgit.integrations.{name}.{module_suffix}"
@@ -248,6 +388,26 @@ def get_integration_commands(name: str):
             continue
         except Exception:
             continue
+
+    # Try custom integration commands
+    custom_commands_path = CUSTOM_INTEGRATIONS_DIR / name / "commands.py"
+    if custom_commands_path.exists():
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"custom_commands_{name}",
+                custom_commands_path
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                app_name = f"{name}_app"
+                if hasattr(module, app_name):
+                    return getattr(module, app_name)
+                if hasattr(module, "app"):
+                    return getattr(module, "app")
+        except Exception:
+            pass
 
     return None
 
@@ -299,3 +459,12 @@ def get_all_integration_commands() -> Dict[str, Any]:
             commands[name] = app
 
     return commands
+
+
+# ==================== Refresh Cache ====================
+
+def refresh_integrations():
+    """Force refresh the integration cache (call after adding custom integrations)."""
+    global _discovery_done
+    _discovery_done = False
+    _discover_integrations(force=True)

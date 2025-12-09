@@ -3,7 +3,13 @@ import typer
 from pathlib import Path
 
 from ..core.config import ConfigManager
-from ..integrations.registry import get_builtin_integrations, BUILTIN_INTEGRATIONS, IntegrationType
+from ..integrations.registry import (
+    get_builtin_integrations,
+    get_all_integrations,
+    get_integration_class,
+    get_integration_type,
+    IntegrationType
+)
 
 integration_app = typer.Typer(help="Integration management")
 
@@ -54,7 +60,7 @@ def list_cmd():
     # Group integrations by type
     by_type = {}
     for name in builtin:
-        itype = BUILTIN_INTEGRATIONS.get(name)
+        itype = get_integration_type(name)
         if itype not in by_type:
             by_type[itype] = []
         by_type[itype].append(name)
@@ -148,6 +154,14 @@ def install_cmd(name: str):
         if value is not None:
             config_values[field["key"]] = value
 
+    # Call integration's after_install hook if available
+    try:
+        integration_cls = get_integration_class(name)
+        if integration_cls and hasattr(integration_cls, 'after_install'):
+            config_values = integration_cls.after_install(config_values)
+    except Exception:
+        pass  # after_install is optional
+
     # Save to config
     config = ConfigManager().load()
     if "integrations" not in config:
@@ -156,7 +170,7 @@ def install_cmd(name: str):
     config["integrations"][name] = config_values
 
     # Get integration type
-    itype = BUILTIN_INTEGRATIONS.get(name)
+    itype = get_integration_type(name)
     type_name = _get_integration_type_name(itype) if itype else None
     type_label = _get_integration_type_label(itype) if itype else None
 
@@ -249,12 +263,15 @@ def _prompt_field(field: dict):
 
         # Find available integrations of this type
         available = []
-        for int_name, itype in BUILTIN_INTEGRATIONS.items():
-            type_name = _get_integration_type_name(itype)
-            if type_name == integration_type_str:
-                # Check if configured
-                if integrations_config.get(int_name, {}).get("enabled"):
-                    available.append(int_name)
+        all_integrations = get_all_integrations()
+        for int_name, int_cls in all_integrations.items():
+            itype = getattr(int_cls, 'integration_type', None)
+            if itype:
+                type_name = _get_integration_type_name(itype)
+                if type_name == integration_type_str:
+                    # Check if configured
+                    if integrations_config.get(int_name, {}).get("enabled"):
+                        available.append(int_name)
 
         if not available:
             typer.echo(f"   {prompt_text}")
@@ -342,7 +359,7 @@ def use_cmd(name: str):
         raise typer.Exit(1)
 
     # Get integration type
-    itype = BUILTIN_INTEGRATIONS.get(name)
+    itype = get_integration_type(name)
     if not itype:
         typer.secho(f"❌ Unknown integration type for '{name}'.", fg=typer.colors.RED)
         raise typer.Exit(1)
