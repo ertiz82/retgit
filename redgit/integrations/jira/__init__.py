@@ -27,11 +27,11 @@ class JiraIntegration(TaskManagementBase):
         "bug": "10007"
     }
 
-    # Status mappings (common Jira statuses)
-    STATUS_MAP = {
+    # Default status mappings (can be overridden in config)
+    DEFAULT_STATUS_MAP = {
         "todo": ["To Do", "Open", "Backlog"],
         "in_progress": ["In Progress", "In Development", "In Review"],
-        "done": ["Done", "Closed", "Resolved"]
+        "done": ["Done", "Closed", "Resolved", "Complete"]
     }
 
     def __init__(self):
@@ -44,9 +44,11 @@ class JiraIntegration(TaskManagementBase):
         self.board_type = "scrum"  # scrum, kanban, none
         self.board_id = None
         self.issue_types = self.DEFAULT_ISSUE_TYPES.copy()
+        self.status_map = self.DEFAULT_STATUS_MAP.copy()
         self.commit_prefix = ""
         self.branch_pattern = "feature/{issue_key}-{description}"
         self.story_points_field = "customfield_10016"
+        self.issue_language = None  # None = same as commit language, or "tr", "en", etc.
         self.session = None
 
     def setup(self, config: dict):
@@ -63,6 +65,10 @@ class JiraIntegration(TaskManagementBase):
                 board_id: 1  # optional, auto-detected if empty
                 story_points_field: "customfield_10016"  # optional
                 # API token: JIRA_API_TOKEN env variable or token field
+                # Custom status mappings (optional):
+                statuses:
+                  in_progress: ["Devam Ediyor", "In Progress"]
+                  done: ["Tamamlandı", "Resolved", "Done"]
         """
         self.site = config.get("site", "").rstrip("/")
         self.email = config.get("email", "")
@@ -76,6 +82,17 @@ class JiraIntegration(TaskManagementBase):
         # Override issue types if provided
         if config.get("issue_types"):
             self.issue_types.update(config["issue_types"])
+
+        # Override status mappings if provided
+        if config.get("statuses"):
+            for key, values in config["statuses"].items():
+                if isinstance(values, list):
+                    self.status_map[key] = values
+                elif isinstance(values, str):
+                    self.status_map[key] = [values]
+
+        # Issue language (for Jira issues, separate from commit language)
+        self.issue_language = config.get("issue_language")
 
         # Commit and branch patterns
         self.commit_prefix = config.get("commit_prefix", self.project_key)
@@ -188,9 +205,18 @@ class JiraIntegration(TaskManagementBase):
         summary: str,
         description: str = "",
         issue_type: str = "task",
-        story_points: Optional[float] = None
+        story_points: Optional[float] = None,
+        assign_to_me: bool = True
     ) -> Optional[str]:
-        """Create a new issue in the project."""
+        """Create a new issue in the project.
+
+        Args:
+            summary: Issue title
+            description: Issue description
+            issue_type: Type of issue (task, story, bug, etc.)
+            story_points: Story points (defaults to 1 if not specified)
+            assign_to_me: Auto-assign to current user (default: True)
+        """
         if not self.enabled or not self.project_key:
             return None
 
@@ -216,8 +242,15 @@ class JiraIntegration(TaskManagementBase):
                     }]
                 }
 
-            if story_points and self.story_points_field:
-                payload["fields"][self.story_points_field] = story_points
+            # Set story points (default to 1 if not specified)
+            if self.story_points_field:
+                payload["fields"][self.story_points_field] = story_points if story_points else 1
+
+            # Auto-assign to current user
+            if assign_to_me:
+                my_account_id = self._get_my_account_id()
+                if my_account_id:
+                    payload["fields"]["assignee"] = {"accountId": my_account_id}
 
             response = self.session.post(url, json=payload)
             response.raise_for_status()
@@ -229,6 +262,19 @@ class JiraIntegration(TaskManagementBase):
                 self.add_issue_to_active_sprint(issue_key)
 
             return issue_key
+        except Exception:
+            return None
+
+    def _get_my_account_id(self) -> Optional[str]:
+        """Get current user's account ID."""
+        if not self.enabled:
+            return None
+
+        try:
+            url = f"{self.site}/rest/api/3/myself"
+            response = self.session.get(url)
+            response.raise_for_status()
+            return response.json().get("accountId")
         except Exception:
             return None
 
@@ -256,7 +302,10 @@ class JiraIntegration(TaskManagementBase):
             return False
 
     def transition_issue(self, issue_key: str, status: str) -> bool:
-        """Change issue status (e.g., 'In Progress', 'Done')."""
+        """Change issue status (e.g., 'In Progress', 'Done').
+
+        Uses status_map from config to find matching transitions.
+        """
         if not self.enabled:
             return False
 
@@ -273,10 +322,10 @@ class JiraIntegration(TaskManagementBase):
                     self.session.post(url, json={"transition": {"id": t["id"]}})
                     return True
 
-            # Try mapped status names
+            # Try mapped status names from config
             status_lower = status.lower().replace(" ", "_")
-            if status_lower in self.STATUS_MAP:
-                for status_name in self.STATUS_MAP[status_lower]:
+            if status_lower in self.status_map:
+                for status_name in self.status_map[status_lower]:
                     for t in transitions:
                         if t["name"].lower() == status_name.lower():
                             self.session.post(url, json={"transition": {"id": t["id"]}})
