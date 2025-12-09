@@ -24,7 +24,86 @@ integrations:
     board_id: null             # Auto-detected if empty
     story_points_field: customfield_10016
     branch_pattern: "feature/{issue_key}-{description}"
+
+    # Custom status mappings (optional)
+    # Override default status names for your Jira workflow
+    statuses:
+      todo:
+        - "To Do"
+        - "Backlog"
+        - "Open"
+      in_progress:
+        - "In Progress"
+        - "In Development"
+        - "Devam Ediyor"        # Turkish example
+      done:
+        - "Done"
+        - "Resolved"
+        - "Closed"
+        - "Tamamlandı"          # Turkish example
+
+    # Custom issue type IDs (optional)
+    # Override if your Jira uses different type IDs
+    issue_types:
+      task: "10003"
+      story: "10004"
+      bug: "10007"
+      epic: "10001"
+
+    # Issue language (optional)
+    # Set this to create Jira issues in a different language than commits
+    # Commits will always be in English, but issue titles will be in this language
+    issue_language: tr   # Turkish, or: en, de, fr, es, pt, it, ru, zh, ja, ko, ar
 ```
+
+### Issue Language
+
+When `issue_language` is set, RedGit will:
+- Keep commit messages in **English** (following conventional commits)
+- Generate Jira issue titles in the **specified language**
+
+This is useful for teams that:
+- Follow English commit conventions for code consistency
+- Use a local language for Jira boards to improve readability for non-technical stakeholders
+
+**Supported Languages:**
+| Code | Language |
+|------|----------|
+| `tr` | Turkish |
+| `en` | English |
+| `de` | German |
+| `fr` | French |
+| `es` | Spanish |
+| `pt` | Portuguese |
+| `it` | Italian |
+| `ru` | Russian |
+| `zh` | Chinese |
+| `ja` | Japanese |
+| `ko` | Korean |
+| `ar` | Arabic |
+
+**Example:**
+```yaml
+integrations:
+  jira:
+    issue_language: tr
+```
+
+With this config:
+- Commit: `feat: add user authentication`
+- Jira Issue: `Kullanıcı kimlik doğrulama özelliği eklendi`
+
+### Status Mapping
+
+RedGit uses status mappings to transition issues between workflow states. The default mappings cover common Jira configurations:
+
+| Status Key | Default Values |
+|------------|---------------|
+| `todo` | "To Do", "Open", "Backlog" |
+| `in_progress` | "In Progress", "In Development", "In Review" |
+| `done` | "Done", "Closed", "Resolved", "Complete" |
+
+**Custom Workflows:** If your Jira board uses different status names (e.g., Turkish, custom workflow), add them to the `statuses` config. RedGit will try each status name in order until one succeeds.
 
 ## Environment Variables
 
