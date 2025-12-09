@@ -40,7 +40,11 @@ RedGit analyzes your code changes, groups them logically, matches them with your
 ### Install RedGit
 
 ```bash
-# From PyPI
+# Using Homebrew (macOS/Linux)
+brew tap ertiz82/tap
+brew install redgit
+
+# Using pip (all platforms)
 pip install redgit
 
 # From source
