@@ -181,6 +181,7 @@ class GitOps:
         9. Pop remaining stash
         """
         base_branch = self.original_branch
+        is_empty_repo = not self.has_commits()
 
         # Filter out excluded files (but keep deleted files)
         # Get current changes to check for deleted files
@@ -201,6 +202,12 @@ class GitOps:
             return False
 
         actual_branch_name = branch_name
+
+        # Special handling for empty repos (no commits yet)
+        if is_empty_repo:
+            return self._commit_to_empty_repo(
+                branch_name, safe_files, deleted_files, message, strategy
+            )
 
         try:
             # 1. Stash all changes (including untracked)
@@ -405,3 +412,60 @@ class GitOps:
                     self.repo.git.checkout("HEAD", "--", f)
                 except Exception:
                     pass
+
+    def _commit_to_empty_repo(
+        self,
+        branch_name: str,
+        safe_files: List[str],
+        deleted_files: List[str],
+        message: str,
+        strategy: str = "local-merge"
+    ) -> bool:
+        """
+        Handle commits in a repository with no commits yet.
+
+        For empty repos, we can't create branches from a base since there's no commit.
+        Instead, we commit directly to the current branch.
+
+        After the first commit, subsequent commits in the same session will use
+        the normal branch-based flow since the repo will have commits.
+
+        Args:
+            branch_name: Intended branch name (used for naming only in message)
+            safe_files: List of files to commit
+            deleted_files: List of deleted files to stage
+            message: Commit message
+            strategy: "local-merge" or "merge-request" (ignored for first commit)
+
+        Returns:
+            True if successful
+        """
+        try:
+            # In empty repo, just stage and commit directly to current branch
+            # The branch will be created on first commit
+
+            # Stage the files
+            for f in safe_files:
+                try:
+                    self.repo.index.add([f])
+                except Exception:
+                    pass
+
+            # Stage deleted files (unlikely in empty repo but handle anyway)
+            for f in deleted_files:
+                try:
+                    self.repo.index.remove([f], working_tree=False)
+                except Exception:
+                    pass
+
+            # Commit - this creates the initial commit and the branch
+            self.repo.index.commit(message)
+
+            # Update original_branch now that we have a commit
+            # This is crucial for subsequent commits to use normal branch flow
+            self.original_branch = self.repo.active_branch.name
+
+            return True
+
+        except Exception as e:
+            raise e

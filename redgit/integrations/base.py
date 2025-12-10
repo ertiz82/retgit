@@ -257,7 +257,10 @@ class NotificationBase(IntegrationBase):
     """
     Base class for notification integrations.
 
-    Sends notifications to Slack, Discord, etc.
+    Sends notifications to Slack, Discord, Teams, Discord, etc.
+
+    All notification integrations must implement the standard notify() method
+    so other integrations can send notifications through them.
     """
 
     integration_type = IntegrationType.NOTIFICATION
@@ -265,12 +268,147 @@ class NotificationBase(IntegrationBase):
     @abstractmethod
     def send_message(self, message: str, channel: str = None) -> bool:
         """
-        Send a notification message.
+        Send a simple text notification message.
+
+        Args:
+            message: Message text
+            channel: Optional channel/room override
 
         Returns:
             True if successful
         """
         pass
+
+    def notify(
+        self,
+        event_type: str,
+        title: str,
+        message: str = "",
+        url: str = None,
+        fields: Dict[str, str] = None,
+        level: str = "info",
+        channel: str = None
+    ) -> bool:
+        """
+        Send a structured notification. This is the standard interface
+        that other integrations should use.
+
+        Args:
+            event_type: Type of event (commit, branch, pr, task, deploy, alert, etc.)
+            title: Notification title
+            message: Notification body/description
+            url: Optional URL to link to
+            fields: Optional key-value pairs to display
+            level: Notification level (info, success, warning, error)
+            channel: Optional channel override
+
+        Returns:
+            True if successful
+
+        Example:
+            notify(
+                event_type="commit",
+                title="New commit on main",
+                message="feat: add user authentication",
+                fields={"Branch": "main", "Author": "developer"},
+                level="success"
+            )
+        """
+        # Default implementation - subclasses should override for rich formatting
+        text = f"[{event_type.upper()}] {title}"
+        if message:
+            text += f"\n{message}"
+        if fields:
+            text += "\n" + "\n".join(f"{k}: {v}" for k, v in fields.items())
+        if url:
+            text += f"\n{url}"
+
+        return self.send_message(text, channel=channel)
+
+    def notify_commit(
+        self,
+        branch: str,
+        message: str,
+        author: str = None,
+        files: List[str] = None,
+        url: str = None
+    ) -> bool:
+        """Convenience method for commit notifications."""
+        fields = {"Branch": branch}
+        if author:
+            fields["Author"] = author
+        if files:
+            fields["Files"] = str(len(files))
+
+        return self.notify(
+            event_type="commit",
+            title="New Commit",
+            message=message,
+            url=url,
+            fields=fields,
+            level="info"
+        )
+
+    def notify_branch(self, branch_name: str, issue_key: str = None) -> bool:
+        """Convenience method for branch creation notifications."""
+        fields = {"Branch": branch_name}
+        if issue_key:
+            fields["Issue"] = issue_key
+
+        return self.notify(
+            event_type="branch",
+            title="Branch Created",
+            message=branch_name,
+            fields=fields,
+            level="info"
+        )
+
+    def notify_pr(
+        self,
+        title: str,
+        url: str,
+        head: str,
+        base: str = "main"
+    ) -> bool:
+        """Convenience method for PR notifications."""
+        return self.notify(
+            event_type="pr",
+            title="Pull Request Created",
+            message=title,
+            url=url,
+            fields={"From": head, "To": base},
+            level="success"
+        )
+
+    def notify_task(
+        self,
+        action: str,
+        issue_key: str,
+        summary: str,
+        url: str = None
+    ) -> bool:
+        """Convenience method for task-related notifications."""
+        return self.notify(
+            event_type="task",
+            title=f"Task {action.capitalize()}",
+            message=f"{issue_key}: {summary}",
+            url=url,
+            level="info"
+        )
+
+    def notify_alert(
+        self,
+        title: str,
+        message: str,
+        level: str = "warning"
+    ) -> bool:
+        """Convenience method for alerts."""
+        return self.notify(
+            event_type="alert",
+            title=title,
+            message=message,
+            level=level
+        )
 
 
 class AnalysisBase(IntegrationBase):
