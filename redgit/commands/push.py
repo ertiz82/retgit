@@ -9,7 +9,7 @@ from rich.prompt import Confirm
 
 from ..core.config import ConfigManager, StateManager
 from ..core.gitops import GitOps
-from ..integrations.registry import get_task_management, get_code_hosting
+from ..integrations.registry import get_task_management, get_code_hosting, get_cicd, get_notification
 
 console = Console()
 
@@ -30,6 +30,14 @@ def push_cmd(
     tags: bool = typer.Option(
         True, "--tags/--no-tags",
         help="Push tags along with branches"
+    ),
+    trigger_ci: bool = typer.Option(
+        None, "--ci/--no-ci",
+        help="Trigger CI/CD pipeline after push (auto-detects if ci_cd integration active)"
+    ),
+    wait_ci: bool = typer.Option(
+        False, "--wait-ci", "-w",
+        help="Wait for CI/CD pipeline to complete"
     )
 ):
     """Push current branch or session branches and complete issues."""
@@ -46,7 +54,7 @@ def push_cmd(
 
     # If no session, push current branch
     if not session or not session.get("branches"):
-        _push_current_branch(gitops, config, complete, create_pr, issue, tags)
+        _push_current_branch(gitops, config, complete, create_pr, issue, tags, trigger_ci, wait_ci)
         return
 
     branches = session.get("branches", [])
@@ -81,7 +89,7 @@ def push_cmd(
         # Push branches and optionally create PRs
         _push_merge_request_strategy(
             branches, gitops, task_mgmt, code_hosting,
-            base_branch, create_pr, complete
+            base_branch, create_pr, complete, config
         )
     else:
         # local-merge strategy: branches are already merged during propose
@@ -128,13 +136,15 @@ def _push_merge_request_strategy(
     code_hosting,
     base_branch: str,
     create_pr: bool,
-    complete: bool
+    complete: bool,
+    config: dict = None
 ):
     """Push branches to remote and optionally create PRs."""
 
     console.print("\n[bold cyan]Pushing branches...[/bold cyan]")
 
     pushed_issues = []
+    pushed_branches = []
 
     for b in branches:
         branch_name = b.get("branch", "")
@@ -146,6 +156,7 @@ def _push_merge_request_strategy(
             # Push to remote
             gitops.repo.git.push("-u", "origin", branch_name)
             console.print(f"[green]  ✓ Pushed to origin/{branch_name}[/green]")
+            pushed_branches.append(branch_name)
 
             # Create PR if requested and code_hosting available
             if create_pr and code_hosting and code_hosting.enabled:
@@ -160,6 +171,9 @@ def _push_merge_request_strategy(
                 )
                 if pr_url:
                     console.print(f"[green]  ✓ PR created: {pr_url}[/green]")
+                    # Send PR notification
+                    if config:
+                        _send_pr_notification(config, branch_name, pr_url, issue_key)
 
             if issue_key:
                 pushed_issues.append(issue_key)
@@ -167,10 +181,17 @@ def _push_merge_request_strategy(
         except Exception as e:
             console.print(f"[red]  ❌ Error: {e}[/red]")
 
+    # Send push notification for all branches
+    if config and pushed_branches:
+        _send_push_notification(config, f"{len(pushed_branches)} branches", pushed_issues if pushed_issues else None)
+
     # Complete issues
     if complete and task_mgmt and task_mgmt.enabled and pushed_issues:
         console.print("\n[bold cyan]Completing issues...[/bold cyan]")
         _complete_issues(pushed_issues, task_mgmt)
+        # Send issue completion notification
+        if config:
+            _send_issue_completion_notification(config, pushed_issues)
 
 
 def _push_local_merge_strategy(
@@ -252,7 +273,9 @@ def _push_current_branch(
     complete: bool,
     create_pr: bool,
     issue_key: Optional[str],
-    push_tags: bool = True
+    push_tags: bool = True,
+    trigger_ci: Optional[bool] = None,
+    wait_ci: bool = False
 ):
     """Push current branch without session."""
 
@@ -294,6 +317,8 @@ def _push_current_branch(
     exit_code = os.system(f"git push -u origin {current_branch}")
     if exit_code == 0:
         console.print(f"[green]✓ Pushed to origin/{current_branch}[/green]")
+        # Send push notification
+        _send_push_notification(config, current_branch, [issue_key] if issue_key else None)
     else:
         console.print(f"[red]❌ Push failed (exit code {exit_code})[/red]")
         return
@@ -330,11 +355,22 @@ def _push_current_branch(
         )
         if pr_url:
             console.print(f"[green]✓ PR created: {pr_url}[/green]")
+            # Send PR notification
+            _send_pr_notification(config, current_branch, pr_url, issue_key)
 
     # Complete issue
     if complete and issue_key and task_mgmt and task_mgmt.enabled:
         if Confirm.ask(f"Mark {issue_key} as completed?", default=True):
             _complete_issues([issue_key], task_mgmt)
+            # Send issue completion notification
+            _send_issue_completion_notification(config, [issue_key])
+
+    # CI/CD integration
+    cicd = get_cicd(config)
+    should_trigger_ci = trigger_ci if trigger_ci is not None else (cicd and cicd.enabled)
+
+    if should_trigger_ci and cicd and cicd.enabled:
+        _trigger_cicd_pipeline(cicd, config, current_branch, wait_ci)
 
     console.print("\n[bold green]✅ Push complete![/bold green]")
 
@@ -391,3 +427,149 @@ def _extract_issue_from_branch(branch_name: str, config: dict) -> Optional[str]:
         return match.group(1).upper()
 
     return None
+
+
+def _trigger_cicd_pipeline(cicd, config: dict, branch: str, wait: bool = False):
+    """Trigger CI/CD pipeline and optionally wait for completion."""
+    import time
+
+    console.print(f"\n[bold cyan]CI/CD Pipeline[/bold cyan]")
+
+    try:
+        # Trigger the pipeline
+        console.print(f"[dim]Triggering pipeline for {branch}...[/dim]")
+        pipeline = cicd.trigger_pipeline(branch=branch)
+
+        if not pipeline:
+            console.print("[yellow]Could not trigger pipeline (may already be running)[/yellow]")
+            return
+
+        console.print(f"[green]Pipeline triggered: {pipeline.name}[/green]")
+        if pipeline.url:
+            console.print(f"[dim]URL: {pipeline.url}[/dim]")
+
+        if not wait:
+            return
+
+        # Wait for pipeline completion
+        console.print("\n[dim]Waiting for pipeline to complete...[/dim]")
+        max_wait = 600  # 10 minutes
+        poll_interval = 10  # seconds
+        elapsed = 0
+
+        while elapsed < max_wait:
+            status = cicd.get_pipeline_status(pipeline.name)
+            if not status:
+                console.print("[yellow]Could not get pipeline status[/yellow]")
+                break
+
+            if status.status in ("success", "passed"):
+                console.print(f"[green]Pipeline completed successfully![/green]")
+                _send_ci_notification(config, branch, "success", pipeline.url)
+                return
+            elif status.status in ("failed", "error", "failure"):
+                console.print(f"[red]Pipeline failed![/red]")
+                _send_ci_notification(config, branch, "failed", pipeline.url)
+                return
+            elif status.status in ("cancelled", "canceled", "skipped"):
+                console.print(f"[yellow]Pipeline {status.status}[/yellow]")
+                return
+
+            # Still running
+            elapsed += poll_interval
+            remaining = max_wait - elapsed
+            console.print(f"[dim]Status: {status.status} ({remaining}s remaining)[/dim]", end="\r")
+            time.sleep(poll_interval)
+
+        console.print(f"\n[yellow]Timeout waiting for pipeline (still {status.status if status else 'unknown'})[/yellow]")
+
+    except Exception as e:
+        console.print(f"[red]CI/CD error: {e}[/red]")
+
+
+def _is_notification_enabled(config: dict, event: str) -> bool:
+    """Check if notification is enabled for a specific event."""
+    from ..core.config import ConfigManager
+    config_manager = ConfigManager()
+    return config_manager.is_notification_enabled(event)
+
+
+def _send_ci_notification(config: dict, branch: str, status: str, url: Optional[str] = None):
+    """Send notification about CI/CD pipeline result."""
+    # Check event-specific setting
+    event = "ci_success" if status == "success" else "ci_failure"
+    if not _is_notification_enabled(config, event):
+        return
+
+    notification = get_notification(config)
+    if not notification or not notification.enabled:
+        return
+
+    try:
+        if status == "success":
+            message = f"✅ Pipeline for `{branch}` completed successfully"
+        else:
+            message = f"❌ Pipeline for `{branch}` failed"
+
+        if url:
+            message += f"\n{url}"
+
+        notification.send_message(message)
+    except Exception:
+        pass  # Notification failure shouldn't break the flow
+
+
+def _send_push_notification(config: dict, branch: str, issues: List[str] = None):
+    """Send notification about successful push."""
+    if not _is_notification_enabled(config, "push"):
+        return
+
+    notification = get_notification(config)
+    if not notification or not notification.enabled:
+        return
+
+    try:
+        message = f"📤 Pushed `{branch}` to remote"
+        if issues:
+            message += f"\nIssues: {', '.join(issues)}"
+        notification.send_message(message)
+    except Exception:
+        pass
+
+
+def _send_pr_notification(config: dict, branch: str, pr_url: str, issue_key: str = None):
+    """Send notification about PR creation."""
+    if not _is_notification_enabled(config, "pr_created"):
+        return
+
+    notification = get_notification(config)
+    if not notification or not notification.enabled:
+        return
+
+    try:
+        message = f"🔀 PR created for `{branch}`"
+        if issue_key:
+            message += f" ({issue_key})"
+        message += f"\n{pr_url}"
+        notification.send_message(message)
+    except Exception:
+        pass
+
+
+def _send_issue_completion_notification(config: dict, issues: List[str]):
+    """Send notification about issues marked as done."""
+    if not _is_notification_enabled(config, "issue_completed"):
+        return
+
+    notification = get_notification(config)
+    if not notification or not notification.enabled:
+        return
+
+    try:
+        if len(issues) == 1:
+            message = f"✅ Issue {issues[0]} marked as Done"
+        else:
+            message = f"✅ {len(issues)} issues marked as Done: {', '.join(issues)}"
+        notification.send_message(message)
+    except Exception:
+        pass
