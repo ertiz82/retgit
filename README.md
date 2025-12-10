@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=4" alt="RedGit Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=5" alt="RedGit Logo" width="400"/>
 </p>
 
 <p align="center">
@@ -40,9 +40,12 @@ RedGit analyzes your code changes, groups them logically, matches them with your
 ### Install RedGit
 
 ```bash
-# Using Homebrew (macOS/Linux)
+# Using Homebrew (macOS/Linux) - Recommended
 brew tap ertiz82/tap
 brew install redgit
+
+# Using pipx (isolated environment)
+pipx install redgit
 
 # Using pip (all platforms)
 pip install redgit
@@ -53,6 +56,16 @@ cd redgit
 pip install -e .
 ```
 
+> **Note:** If you see a warning about PATH after installation with pip/pipx, run:
+> ```bash
+> # For pipx
+> pipx ensurepath
+>
+> # Or manually add to ~/.zshrc or ~/.bashrc:
+> export PATH="$HOME/.local/bin:$PATH"
+> ```
+> Then restart your terminal.
+
 After installation, you can use either `redgit` or the short alias `rg`:
 
 ```bash
@@ -60,6 +73,14 @@ redgit --help
 # or
 rg --help
 ```
+
+> **Note:** If you have [ripgrep](https://github.com/BurntSushi/ripgrep) installed, both tools use the `rg` command. To use RedGit's `rg`, add an alias to your shell config:
+> ```bash
+> # Add to ~/.zshrc or ~/.bashrc
+> alias rg='/opt/homebrew/opt/redgit/bin/rg'  # Homebrew
+> # or
+> alias rg="$HOME/.local/bin/rg"              # pip/pipx
+> ```
 
 ### LLM Provider Setup
 
