@@ -24,7 +24,8 @@ from .base import (
     TaskManagementBase,
     CodeHostingBase,
     NotificationBase,
-    AnalysisBase
+    AnalysisBase,
+    CICDBase
 )
 
 # Builtin integrations directory (inside package)
@@ -160,7 +161,8 @@ def _is_valid_integration_class(cls) -> bool:
         cls is not TaskManagementBase and
         cls is not CodeHostingBase and
         cls is not NotificationBase and
-        cls is not AnalysisBase
+        cls is not AnalysisBase and
+        cls is not CICDBase
     )
 
 
@@ -394,6 +396,49 @@ def get_notification(config: dict, active_name: Optional[str] = None) -> Optiona
     integration = load_integration_by_name(active_name, integration_config)
 
     if integration and isinstance(integration, NotificationBase):
+        return integration
+
+    return None
+
+
+def get_cicd(config: dict, active_name: Optional[str] = None) -> Optional[CICDBase]:
+    """
+    Get the active CI/CD integration.
+
+    Args:
+        config: Full config dict
+        active_name: Override active integration name
+
+    Returns:
+        CICDBase instance or None
+
+    Example:
+        from redgit.integrations.registry import get_cicd
+        from redgit.core.config import ConfigManager
+
+        config = ConfigManager().load()
+        cicd = get_cicd(config)
+
+        if cicd:
+            # Trigger a pipeline
+            run = cicd.trigger_pipeline(branch="main")
+
+            # Check status
+            status = cicd.get_pipeline_status(run.id)
+
+            # List recent pipelines
+            runs = cicd.list_pipelines(limit=5)
+    """
+    if not active_name:
+        active_name = config.get("active", {}).get("ci_cd")
+
+    if not active_name:
+        return None
+
+    integration_config = config.get("integrations", {}).get(active_name, {})
+    integration = load_integration_by_name(active_name, integration_config)
+
+    if integration and isinstance(integration, CICDBase):
         return integration
 
     return None

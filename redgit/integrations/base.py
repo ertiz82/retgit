@@ -5,6 +5,7 @@ Integration Types:
 - task_management: Jira, Linear, Asana, GitHub Issues
 - code_hosting: GitHub, GitLab, Bitbucket
 - notification: Slack, Discord
+- ci_cd: GitHub Actions, GitLab CI, Jenkins, CircleCI
 """
 
 from abc import ABC, abstractmethod
@@ -18,6 +19,7 @@ class IntegrationType(Enum):
     CODE_HOSTING = "code_hosting"
     NOTIFICATION = "notification"
     ANALYSIS = "analysis"
+    CI_CD = "ci_cd"
 
 
 @dataclass
@@ -46,23 +48,117 @@ class Sprint:
     goal: Optional[str] = None
 
 
+@dataclass
+class PipelineRun:
+    """Standardized pipeline/workflow run representation"""
+    id: str
+    name: str
+    status: str           # "pending", "running", "success", "failed", "cancelled"
+    branch: Optional[str] = None
+    commit_sha: Optional[str] = None
+    url: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration: Optional[int] = None  # seconds
+    trigger: Optional[str] = None   # "push", "pr", "manual", "schedule"
+
+
+@dataclass
+class PipelineJob:
+    """Standardized job/step representation within a pipeline"""
+    id: str
+    name: str
+    status: str           # "pending", "running", "success", "failed", "skipped"
+    stage: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration: Optional[int] = None
+    url: Optional[str] = None
+    logs_url: Optional[str] = None
+
+
 class IntegrationBase(ABC):
     """Base class for all integrations"""
 
     name: str = "base"
     integration_type: IntegrationType = None
 
+    # Custom notification events this integration can emit
+    # Override in subclass to define custom events
+    # Format: {"event_name": {"description": "...", "default": True/False}}
+    notification_events: Dict[str, Dict[str, Any]] = {}
+
     def __init__(self):
         self.enabled = False
+        self._config = {}
 
     @abstractmethod
     def setup(self, config: dict):
         """Initialize integration with config"""
         pass
 
+    def set_config(self, config: dict):
+        """Store full config for notification access"""
+        self._config = config
+
     def on_commit(self, group: dict, context: dict):
         """Hook called after each commit (optional)"""
         pass
+
+    def notify(self, event: str, message: str, **kwargs) -> bool:
+        """
+        Send notification for an event if enabled.
+
+        Args:
+            event: Event name (must be in notification_events or standard events)
+            message: Notification message
+            **kwargs: Additional args (url, fields, level, etc.)
+
+        Returns:
+            True if notification sent successfully
+        """
+        from .registry import get_notification
+        from ..core.config import ConfigManager
+
+        # Skip if this is a notification integration
+        if self.integration_type == IntegrationType.NOTIFICATION:
+            return False
+
+        # Check if event is enabled
+        config_manager = ConfigManager()
+        if not config_manager.is_notification_enabled(event):
+            return False
+
+        # Get notification integration
+        notification = get_notification(self._config)
+        if not notification or not notification.enabled:
+            return False
+
+        try:
+            # Use structured notify if available
+            if hasattr(notification, 'notify') and kwargs:
+                return notification.notify(
+                    event_type=event,
+                    title=kwargs.get('title', event),
+                    message=message,
+                    url=kwargs.get('url'),
+                    fields=kwargs.get('fields'),
+                    level=kwargs.get('level', 'info')
+                )
+            else:
+                return notification.send_message(message)
+        except Exception:
+            return False
+
+    @classmethod
+    def get_notification_events(cls) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all notification events this integration can emit.
+
+        Returns:
+            Dict of event definitions
+        """
+        return cls.notification_events
 
     @staticmethod
     def after_install(config_values: dict) -> dict:
@@ -452,6 +548,143 @@ class AnalysisBase(IntegrationBase):
             List of task dicts with dependencies, estimates, etc.
         """
         pass
+
+
+class CICDBase(IntegrationBase):
+    """
+    Base class for CI/CD integrations.
+
+    Manages pipelines, workflows, builds on GitHub Actions, GitLab CI,
+    Jenkins, CircleCI, etc.
+    """
+
+    integration_type = IntegrationType.CI_CD
+
+    @abstractmethod
+    def trigger_pipeline(
+        self,
+        branch: str = None,
+        workflow: str = None,
+        inputs: Dict[str, Any] = None
+    ) -> Optional[PipelineRun]:
+        """
+        Trigger a new pipeline/workflow run.
+
+        Args:
+            branch: Branch to run on (default: current/main)
+            workflow: Specific workflow/pipeline name (optional)
+            inputs: Input parameters for the workflow
+
+        Returns:
+            PipelineRun object or None if failed
+        """
+        pass
+
+    @abstractmethod
+    def get_pipeline_status(self, run_id: str) -> Optional[PipelineRun]:
+        """
+        Get status of a specific pipeline run.
+
+        Args:
+            run_id: Pipeline/workflow run ID
+
+        Returns:
+            PipelineRun object or None if not found
+        """
+        pass
+
+    @abstractmethod
+    def list_pipelines(
+        self,
+        branch: str = None,
+        status: str = None,
+        limit: int = 10
+    ) -> List[PipelineRun]:
+        """
+        List recent pipeline runs.
+
+        Args:
+            branch: Filter by branch (optional)
+            status: Filter by status (optional)
+            limit: Maximum number of runs to return
+
+        Returns:
+            List of PipelineRun objects
+        """
+        pass
+
+    @abstractmethod
+    def cancel_pipeline(self, run_id: str) -> bool:
+        """
+        Cancel a running pipeline.
+
+        Args:
+            run_id: Pipeline/workflow run ID
+
+        Returns:
+            True if cancelled successfully
+        """
+        pass
+
+    def get_pipeline_jobs(self, run_id: str) -> List[PipelineJob]:
+        """
+        Get jobs/steps for a pipeline run.
+
+        Args:
+            run_id: Pipeline/workflow run ID
+
+        Returns:
+            List of PipelineJob objects
+        """
+        return []
+
+    def retry_pipeline(self, run_id: str) -> Optional[PipelineRun]:
+        """
+        Retry a failed pipeline.
+
+        Args:
+            run_id: Pipeline/workflow run ID
+
+        Returns:
+            New PipelineRun object or None if failed
+        """
+        return None
+
+    def get_pipeline_logs(self, run_id: str, job_id: str = None) -> Optional[str]:
+        """
+        Get logs for a pipeline run or specific job.
+
+        Args:
+            run_id: Pipeline/workflow run ID
+            job_id: Specific job ID (optional)
+
+        Returns:
+            Log content as string or None
+        """
+        return None
+
+    def list_workflows(self) -> List[Dict[str, Any]]:
+        """
+        List available workflows/pipelines.
+
+        Returns:
+            List of workflow definitions
+        """
+        return []
+
+    def get_latest_run(self, branch: str = None, workflow: str = None) -> Optional[PipelineRun]:
+        """
+        Get the latest pipeline run.
+
+        Args:
+            branch: Filter by branch (optional)
+            workflow: Filter by workflow name (optional)
+
+        Returns:
+            Latest PipelineRun or None
+        """
+        runs = self.list_pipelines(branch=branch, limit=1)
+        return runs[0] if runs else None
 
 
 # Backward compatibility alias
