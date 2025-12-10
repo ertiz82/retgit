@@ -387,6 +387,47 @@ def _save_tap_registry(registry: Dict[str, Dict]):
     )
 
 
+def _register_integration_notification_events(target_dir: Path, name: str):
+    """
+    Register custom notification events from an integration.
+
+    Reads notification_events from the integration class and adds
+    any new events to the config file.
+    """
+    try:
+        from ..integrations.registry import load_integration_by_name
+
+        # Try to load the integration class
+        integration = load_integration_by_name(name, {})
+        if not integration:
+            return
+
+        # Get notification events from the class
+        events = integration.get_notification_events()
+        if not events:
+            return
+
+        # Skip notification integrations - they don't emit events
+        from ..integrations.base import IntegrationType
+        if integration.integration_type == IntegrationType.NOTIFICATION:
+            return
+
+        # Register events in config
+        config_manager = ConfigManager()
+        config_manager.register_notification_events(events)
+
+        # Show registered events
+        if events:
+            typer.echo(f"   Registered {len(events)} notification event(s):")
+            for event_name, event_def in events.items():
+                default = "on" if event_def.get("default", True) else "off"
+                typer.echo(f"     • {event_name} ({default})")
+
+    except Exception:
+        # Silently ignore errors - notification events are optional
+        pass
+
+
 def install_from_tap(
     spec: str,
     force: bool = False,
@@ -496,6 +537,9 @@ def _install_from_default_tap(
         from ..integrations.registry import refresh_integrations
         refresh_integrations()
 
+        # Register custom notification events from the integration
+        _register_integration_notification_events(target_dir, name)
+
     # Success
     typer.echo("")
     typer.secho(f"✅ Installed: {name}", fg=typer.colors.GREEN)
@@ -594,6 +638,9 @@ def _install_from_custom_tap(
     # Refresh
     from ..integrations.registry import refresh_integrations
     refresh_integrations()
+
+    # Register custom notification events from the integration
+    _register_integration_notification_events(target_dir, name)
 
     # Success
     typer.echo("")
