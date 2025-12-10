@@ -469,9 +469,14 @@ class JiraIntegration(TaskManagementBase):
         clean_desc = "".join(c if c.isalnum() or c == " " else "" for c in clean_desc)
         clean_desc = clean_desc.strip().replace(" ", "-")[:40]
 
+        # Extract issue number from key (e.g., "SCRUM-656" -> "656")
+        issue_number = issue_key.split("-")[-1] if "-" in issue_key else issue_key
+
         return self.branch_pattern.format(
             issue_key=issue_key,
-            description=clean_desc
+            issue_number=issue_number,
+            description=clean_desc,
+            project_key=self.project_key
         )
 
     def get_commit_prefix(self) -> str:
