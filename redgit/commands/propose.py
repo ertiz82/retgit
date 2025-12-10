@@ -13,7 +13,7 @@ from ..core.config import ConfigManager, StateManager
 from ..core.gitops import GitOps, NotAGitRepoError, init_git_repo
 from ..core.llm import LLMClient
 from ..core.prompt import PromptManager
-from ..integrations.registry import get_task_management, get_code_hosting
+from ..integrations.registry import get_task_management, get_code_hosting, get_notification
 from ..integrations.base import TaskManagementBase, Issue
 from ..plugins.registry import load_plugins, get_active_plugin
 from ..utils.security import filter_changes
@@ -231,6 +231,9 @@ def propose_cmd(
             console.print("[dim]Branches ready for push and PR creation.[/dim]")
             console.print("[dim]Run 'rg push --pr' to push branches and create pull requests[/dim]")
 
+        # Send session summary notification
+        _send_session_summary_notification(config, len(branches), len(issues))
+
 
 def _show_active_issues(issues: List[Issue]):
     """Display active issues in a compact format."""
@@ -371,6 +374,8 @@ def _process_unmatched_groups(
 
                 if issue_key:
                     console.print(f"[green]   ✓ Created issue: {issue_key}[/green]")
+                    # Send notification for issue creation
+                    _send_issue_created_notification(config, issue_key, summary)
 
                     # Transition to In Progress
                     if auto_transition:
@@ -534,6 +539,9 @@ def _process_task_commit(
             # Save to session
             state_manager.add_session_branch(branch_name, issue_key)
 
+            # Send commit notification
+            _send_commit_notification(config, branch_name, issue_key, len(file_paths))
+
             console.print(f"\n[bold green]✅ All changes committed to {issue_key}[/bold green]")
             console.print("[dim]Run 'rg push' to push to remote[/dim]")
         else:
@@ -542,3 +550,67 @@ def _process_task_commit(
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")
         raise typer.Exit(1)
+
+
+def _is_notification_enabled(config: dict, event: str) -> bool:
+    """Check if notification is enabled for a specific event."""
+    from ..core.config import ConfigManager
+    config_manager = ConfigManager()
+    return config_manager.is_notification_enabled(event)
+
+
+def _send_commit_notification(config: dict, branch: str, issue_key: str = None, files_count: int = 0):
+    """Send notification about commit creation."""
+    if not _is_notification_enabled(config, "commit"):
+        return
+
+    notification = get_notification(config)
+    if not notification or not notification.enabled:
+        return
+
+    try:
+        message = f"📝 Committed to `{branch}`"
+        if issue_key:
+            message += f" ({issue_key})"
+        if files_count:
+            message += f"\n{files_count} files"
+        notification.send_message(message)
+    except Exception:
+        pass
+
+
+def _send_issue_created_notification(config: dict, issue_key: str, summary: str = None):
+    """Send notification about issue creation."""
+    if not _is_notification_enabled(config, "issue_created"):
+        return
+
+    notification = get_notification(config)
+    if not notification or not notification.enabled:
+        return
+
+    try:
+        message = f"🆕 Issue created: {issue_key}"
+        if summary:
+            message += f"\n{summary[:100]}"
+        notification.send_message(message)
+    except Exception:
+        pass
+
+
+def _send_session_summary_notification(config: dict, branches_count: int, issues_count: int):
+    """Send notification about session summary."""
+    if not _is_notification_enabled(config, "session_complete"):
+        return
+
+    notification = get_notification(config)
+    if not notification or not notification.enabled:
+        return
+
+    try:
+        message = f"📦 Session complete: {branches_count} commits"
+        if issues_count:
+            message += f", {issues_count} issues"
+        message += "\nRun `rg push` to push to remote"
+        notification.send_message(message)
+    except Exception:
+        pass
