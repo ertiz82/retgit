@@ -12,6 +12,8 @@ from redgit.commands.integration import integration_app
 from redgit.commands.plugin import plugin_app
 from redgit.commands.tap import tap_app, install_cmd as tap_install_cmd, uninstall_cmd as tap_uninstall_cmd
 from redgit.commands.notify import notify_app
+from redgit.commands.ci import ci_app
+from redgit.commands.config import config_app
 
 
 def version_callback(value: bool):
@@ -50,6 +52,8 @@ app.add_typer(integration_app, name="integration")
 app.add_typer(plugin_app, name="plugin")
 app.add_typer(tap_app, name="tap")
 app.add_typer(notify_app, name="notify")
+app.add_typer(ci_app, name="ci")
+app.add_typer(config_app, name="config")
 
 
 def _load_plugin_commands():
