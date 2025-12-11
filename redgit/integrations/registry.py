@@ -25,7 +25,8 @@ from .base import (
     CodeHostingBase,
     NotificationBase,
     AnalysisBase,
-    CICDBase
+    CICDBase,
+    CodeQualityBase
 )
 
 # Builtin integrations directory (inside package)
@@ -162,7 +163,8 @@ def _is_valid_integration_class(cls) -> bool:
         cls is not CodeHostingBase and
         cls is not NotificationBase and
         cls is not AnalysisBase and
-        cls is not CICDBase
+        cls is not CICDBase and
+        cls is not CodeQualityBase
     )
 
 
@@ -439,6 +441,49 @@ def get_cicd(config: dict, active_name: Optional[str] = None) -> Optional[CICDBa
     integration = load_integration_by_name(active_name, integration_config)
 
     if integration and isinstance(integration, CICDBase):
+        return integration
+
+    return None
+
+
+def get_code_quality(config: dict, active_name: Optional[str] = None) -> Optional[CodeQualityBase]:
+    """
+    Get the active code quality integration.
+
+    Args:
+        config: Full config dict
+        active_name: Override active integration name
+
+    Returns:
+        CodeQualityBase instance or None
+
+    Example:
+        from redgit.integrations.registry import get_code_quality
+        from redgit.core.config import ConfigManager
+
+        config = ConfigManager().load()
+        quality = get_code_quality(config)
+
+        if quality:
+            # Get quality status
+            status = quality.get_quality_status(branch="main")
+
+            # Get coverage report
+            coverage = quality.get_coverage()
+
+            # Get project metrics
+            metrics = quality.get_project_metrics()
+    """
+    if not active_name:
+        active_name = config.get("active", {}).get("code_quality")
+
+    if not active_name:
+        return None
+
+    integration_config = config.get("integrations", {}).get(active_name, {})
+    integration = load_integration_by_name(active_name, integration_config)
+
+    if integration and isinstance(integration, CodeQualityBase):
         return integration
 
     return None

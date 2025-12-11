@@ -2,6 +2,8 @@
 
 RedGit supports various integrations for task management and code hosting platforms.
 
+> **Looking for more integrations?** Check out **[RedGit Tap](https://github.com/ertiz82/redgit-tap)** - the official repository with 30+ community integrations including Linear, Notion, Asana, Trello, Telegram, MS Teams, and more.
+
 ## Available Integrations
 
 | Integration | Type | Status | Documentation |
@@ -22,6 +24,14 @@ RedGit supports various integrations for task management and code hosting platfo
 | Drone CI | CI/CD | ✅ Available | - |
 | Slack | Notifications | ✅ Available | - |
 | Discord | Notifications | ✅ Available | - |
+| SonarQube | Code Quality | ✅ Available | - |
+| CodeClimate | Code Quality | ✅ Available | - |
+| Codacy | Code Quality | ✅ Available | - |
+| Snyk | Code Quality | ✅ Available | - |
+| Dependabot | Code Quality | ✅ Available | - |
+| Renovate | Code Quality | ✅ Available | - |
+| Codecov | Code Quality | ✅ Available | - |
+| Coveralls | Code Quality | ✅ Available | - |
 
 ## Quick Start
 
@@ -84,6 +94,16 @@ rg integration list
 │                                                             │
 │  AIIntegrationBase                                          │
 │  └── ScoutIntegration (AI project planning & team mgmt)     │
+│                                                             │
+│  CodeQualityBase                                            │
+│  ├── SonarQubeIntegration                                   │
+│  ├── CodeClimateIntegration                                 │
+│  ├── CodacyIntegration                                      │
+│  ├── SnykIntegration                                        │
+│  ├── DependabotIntegration                                  │
+│  ├── RenovateIntegration                                    │
+│  ├── CodecovIntegration                                     │
+│  └── CoverallsIntegration                                   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -795,3 +815,252 @@ def my_custom_function(config: dict, event: str, details: str):
 ```
 
 This ensures notifications are sent only when a notification integration is configured and active.
+
+---
+
+## Code Quality Integrations
+
+RedGit supports code quality integrations for automated code review, security scanning, and coverage reporting.
+
+### Available Code Quality Integrations
+
+| Integration | Description |
+|-------------|-------------|
+| `sonarqube` | SonarQube/SonarCloud code quality analysis with quality gates |
+| `codeclimate` | CodeClimate maintainability and test coverage |
+| `codacy` | Codacy automated code review and security analysis |
+| `snyk` | Snyk security vulnerability scanning |
+| `dependabot` | GitHub Dependabot for automated dependency updates |
+| `renovate` | Renovate automated dependency updates |
+| `codecov` | Codecov code coverage reporting |
+| `coveralls` | Coveralls coverage tracking |
+
+### Installation
+
+```bash
+# Install a code quality integration
+rg tap install sonarqube
+rg tap install snyk
+rg tap install codecov
+```
+
+### SonarQube/SonarCloud
+
+```yaml
+# .redgit/config.yaml
+active:
+  code_quality: sonarqube
+
+integrations:
+  sonarqube:
+    host: https://sonarcloud.io    # or self-hosted URL
+    project_key: my-project
+    organization: my-org           # For SonarCloud
+    # token: stored in SONAR_TOKEN env var
+```
+
+Environment variables:
+```bash
+export SONAR_TOKEN="your-sonar-token"
+export SONAR_HOST_URL="https://sonarcloud.io"  # optional
+export SONAR_PROJECT_KEY="my-project"          # optional
+```
+
+### Snyk
+
+```yaml
+# .redgit/config.yaml
+active:
+  code_quality: snyk
+
+integrations:
+  snyk:
+    org_id: your-org-id
+    project_id: your-project-id    # Optional
+    # token: stored in SNYK_TOKEN env var
+```
+
+Environment variables:
+```bash
+export SNYK_TOKEN="your-snyk-token"
+export SNYK_ORG_ID="your-org-id"
+```
+
+### Codecov
+
+```yaml
+# .redgit/config.yaml
+active:
+  code_quality: codecov
+
+integrations:
+  codecov:
+    owner: your-username
+    repo: your-repo
+    service: github               # github, gitlab, bitbucket
+    # token: stored in CODECOV_TOKEN env var
+```
+
+### Dependabot / Renovate
+
+These integrations work with GitHub and track dependency update PRs:
+
+```yaml
+# .redgit/config.yaml
+integrations:
+  dependabot:
+    owner: your-username
+    repo: your-repo
+    # Uses GITHUB_TOKEN env var
+
+  renovate:
+    owner: your-username
+    repo: your-repo
+    renovate_bot: renovate[bot]   # Bot username
+```
+
+### Notification Events
+
+Code quality integrations emit the following notification events:
+
+| Integration | Events |
+|-------------|--------|
+| SonarQube | `quality_gate_passed`, `quality_gate_failed`, `new_bugs`, `new_vulnerabilities`, `coverage_decreased` |
+| CodeClimate | `maintainability_changed`, `coverage_changed`, `new_issues`, `technical_debt_increased` |
+| Codacy | `grade_changed`, `quality_gate_failed`, `security_issue_found`, `new_issues` |
+| Snyk | `critical_vulnerability`, `high_vulnerability`, `new_vulnerabilities`, `vulnerability_fixed`, `license_issue` |
+| Dependabot | `security_alert`, `pr_created`, `pr_merged`, `update_available` |
+| Renovate | `pr_created`, `pr_merged`, `major_update`, `security_update`, `config_error` |
+| Codecov | `coverage_decreased`, `coverage_increased`, `target_missed`, `new_uncovered_lines` |
+| Coveralls | `coverage_decreased`, `coverage_increased`, `build_passed`, `build_failed` |
+
+### Creating Code Quality Integrations
+
+```python
+# redgit/integrations/my_quality.py
+
+from .base import CodeQualityBase, QualityReport, SecurityIssue, CoverageReport, IntegrationType
+
+class MyQualityIntegration(CodeQualityBase):
+    name = "my-quality"
+    integration_type = IntegrationType.CODE_QUALITY
+
+    # Define notification events
+    notification_events = {
+        "quality_gate_passed": {
+            "description": "Quality gate passed",
+            "default": True
+        },
+        "quality_gate_failed": {
+            "description": "Quality gate failed",
+            "default": True
+        },
+    }
+
+    def setup(self, config: dict):
+        self.token = config.get("token") or os.getenv("MY_QUALITY_TOKEN")
+        self.project_id = config.get("project_id")
+        self.enabled = bool(self.token and self.project_id)
+
+    def get_quality_status(
+        self,
+        branch: str = None,
+        commit_sha: str = None
+    ) -> Optional[QualityReport]:
+        """Get quality status for a branch or commit."""
+        # Implement API call
+        return QualityReport(
+            id=self.project_id,
+            status="passed",
+            branch=branch,
+            bugs=5,
+            vulnerabilities=0,
+            coverage=85.5,
+            quality_gate_status="passed"
+        )
+
+    def get_project_metrics(self) -> Optional[Dict[str, Any]]:
+        """Get overall project quality metrics."""
+        # Implement API call
+        pass
+
+    def get_security_issues(
+        self,
+        severity: str = None,
+        limit: int = 50
+    ) -> List[SecurityIssue]:
+        """Get security vulnerabilities."""
+        # Implement API call
+        pass
+
+    def get_coverage(
+        self,
+        branch: str = None,
+        commit_sha: str = None
+    ) -> Optional[CoverageReport]:
+        """Get code coverage report."""
+        # Implement API call
+        pass
+```
+
+### QualityReport Dataclass
+
+```python
+@dataclass
+class QualityReport:
+    id: str
+    status: str                    # "passed", "failed", "warning", "pending"
+    branch: str = None
+    commit_sha: str = None
+    url: str = None
+    analyzed_at: str = None
+    # Quality metrics
+    bugs: int = None
+    vulnerabilities: int = None
+    code_smells: int = None
+    coverage: float = None         # percentage (0-100)
+    duplications: float = None     # percentage
+    technical_debt: str = None     # e.g., "2h 30min"
+    # Quality gate
+    quality_gate_status: str = None  # "passed", "failed"
+    quality_gate_details: Dict = None
+```
+
+### SecurityIssue Dataclass
+
+```python
+@dataclass
+class SecurityIssue:
+    id: str
+    severity: str                  # "critical", "high", "medium", "low", "info"
+    title: str
+    description: str = None
+    package: str = None            # affected package/dependency
+    version: str = None            # affected version
+    fixed_in: str = None           # version with fix
+    cve: str = None                # CVE identifier
+    cwe: str = None                # CWE identifier
+    url: str = None
+    file_path: str = None
+    line_number: int = None
+```
+
+### CoverageReport Dataclass
+
+```python
+@dataclass
+class CoverageReport:
+    id: str
+    commit_sha: str = None
+    branch: str = None
+    url: str = None
+    # Coverage metrics
+    line_coverage: float = None      # percentage
+    branch_coverage: float = None    # percentage
+    function_coverage: float = None  # percentage
+    lines_covered: int = None
+    lines_total: int = None
+    # Comparison
+    coverage_change: float = None    # delta from base
+    base_coverage: float = None
+```
