@@ -45,9 +45,10 @@ rg push      # Push and update Jira/Linear
 
 ## Demo
 
-<!-- TODO: Add demo GIF showing rg propose in action -->
+<!-- TODO: Add demo GIF showing rg propose and push in action -->
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/demo.gif" alt="RedGit Demo" width="700"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/rg_propose.png" alt="RedGit Propose" width="500"/>
+<img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/rg_push.png" alt="RedGit Push" width="500"/>
 </p>
 
 ---
