@@ -19,7 +19,7 @@ from rich.panel import Panel
 import yaml
 import os
 
-from ..core.config import ConfigManager, CONFIG_PATH, DEFAULT_NOTIFICATIONS
+from ..core.config import ConfigManager, CONFIG_PATH, DEFAULT_NOTIFICATIONS, DEFAULT_QUALITY
 
 console = Console()
 config_app = typer.Typer(help="View and modify configuration")
@@ -65,47 +65,53 @@ def _build_tree(data: dict, tree: Tree, prefix: str = ""):
 
 
 @config_app.callback(invoke_without_command=True)
-def config_cmd(
-    ctx: typer.Context,
-    section: Optional[str] = typer.Argument(None, help="Config section to view (e.g., plugins, integrations, notifications)")
-):
-    """View configuration. Pass a section name or use subcommands."""
+def config_cmd(ctx: typer.Context):
+    """View configuration. Use subcommands for specific operations."""
     # If a subcommand was invoked, skip
     if ctx.invoked_subcommand is not None:
         return
 
+    # Show entire config
+    config_manager = ConfigManager()
+    config = config_manager.load()
+
+    console.print("\n[bold cyan]RedGit Configuration[/bold cyan]")
+    console.print(f"[dim]File: {CONFIG_PATH}[/dim]\n")
+
+    tree = Tree("[bold]config[/bold]")
+    _build_tree(config, tree)
+    console.print(tree)
+
+    console.print(f"\n[dim]Use 'rg config show <section>' to view a specific section[/dim]")
+    console.print(f"[dim]Use 'rg config set <path> <value>' to modify[/dim]")
+    console.print(f"[dim]Use 'rg config quality --enable' to enable quality checks[/dim]")
+
+
+@config_app.command("show")
+def show_cmd(
+    section: str = typer.Argument(..., help="Config section to view (e.g., plugins, integrations, notifications, quality)")
+):
+    """Show a specific config section."""
     config_manager = ConfigManager()
 
-    if section:
-        # Show specific section
-        data = config_manager.get_section(section)
-        if not data:
-            console.print(f"[yellow]Section '{section}' not found or empty.[/yellow]")
-            console.print(f"\n[dim]Available sections: {', '.join(config_manager.list_keys())}[/dim]")
-            return
+    # Show specific section
+    data = config_manager.get_section(section)
+    if not data:
+        console.print(f"[yellow]Section '{section}' not found or empty.[/yellow]")
+        console.print(f"\n[dim]Available sections: {', '.join(config_manager.list_keys())}[/dim]")
+        return
 
-        console.print(f"\n[bold cyan]Config: {section}[/bold cyan]\n")
+    console.print(f"\n[bold cyan]Config: {section}[/bold cyan]\n")
 
-        # Special handling for notifications - show with defaults
-        if section == "notifications":
-            data = config_manager.get_notifications_config()
+    # Special handling for notifications - show with defaults
+    if section == "notifications":
+        data = config_manager.get_notifications_config()
+    elif section == "quality":
+        data = config_manager.get_quality_config()
 
-        tree = Tree(f"[bold]{section}[/bold]")
-        _build_tree(data, tree)
-        console.print(tree)
-    else:
-        # Show entire config
-        config = config_manager.load()
-
-        console.print("\n[bold cyan]RedGit Configuration[/bold cyan]")
-        console.print(f"[dim]File: {CONFIG_PATH}[/dim]\n")
-
-        tree = Tree("[bold]config[/bold]")
-        _build_tree(config, tree)
-        console.print(tree)
-
-        console.print(f"\n[dim]Use 'rg config <section>' to view a specific section[/dim]")
-        console.print(f"[dim]Use 'rg config set <path> <value>' to modify[/dim]")
+    tree = Tree(f"[bold]{section}[/bold]")
+    _build_tree(data, tree)
+    console.print(tree)
 
 
 @config_app.command("get")
@@ -304,6 +310,15 @@ def reset_cmd(
         config_manager.save(config)
         console.print(f"[green]Reset '{section}' to defaults[/green]")
 
+    elif section == "quality":
+        if not force and not Confirm.ask(f"Reset '{section}' to defaults?", default=True):
+            return
+
+        config = config_manager.load()
+        config["quality"] = DEFAULT_QUALITY.copy()
+        config_manager.save(config)
+        console.print(f"[green]Reset '{section}' to defaults[/green]")
+
     else:
         console.print(f"[yellow]No defaults available for '{section}'[/yellow]")
 
@@ -332,3 +347,68 @@ def yaml_cmd(
     yaml_str = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
     syntax = Syntax(yaml_str, "yaml", theme="monokai", line_numbers=False)
     console.print(syntax)
+
+
+@config_app.command("quality")
+def quality_cmd(
+    enable: bool = typer.Option(None, "--enable/--disable", help="Enable or disable quality checks"),
+    threshold: Optional[int] = typer.Option(None, "--threshold", "-t", help="Set minimum quality score (0-100)"),
+    fail_security: bool = typer.Option(None, "--fail-security/--no-fail-security", help="Fail on security issues")
+):
+    """View or modify code quality settings."""
+    config_manager = ConfigManager()
+
+    # If no options provided, show current settings
+    if enable is None and threshold is None and fail_security is None:
+        quality = config_manager.get_quality_config()
+
+        console.print("\n[bold cyan]Code Quality Settings[/bold cyan]\n")
+
+        # Status
+        is_enabled = quality.get("enabled", False)
+        status = "[green]enabled[/green]" if is_enabled else "[dim]disabled[/dim]"
+        console.print(f"   Status: {status}")
+
+        # Threshold
+        console.print(f"   Threshold: {quality.get('threshold', 70)}")
+
+        # Fail on security
+        fail_sec = quality.get("fail_on_security", True)
+        fail_sec_str = "[green]yes[/green]" if fail_sec else "[red]no[/red]"
+        console.print(f"   Fail on security issues: {fail_sec_str}")
+
+        # Prompt file
+        console.print(f"   Prompt file: {quality.get('prompt_file', 'quality_prompt.md')}")
+
+        console.print("\n[dim]Commands:[/dim]")
+        console.print("   [dim]rg config quality --enable     # Enable quality checks[/dim]")
+        console.print("   [dim]rg config quality --disable    # Disable quality checks[/dim]")
+        console.print("   [dim]rg config quality --threshold 80  # Set threshold[/dim]")
+        console.print("   [dim]rg quality check              # Run quality check manually[/dim]")
+        return
+
+    # Apply changes
+    changes = []
+
+    if enable is not None:
+        config_manager.set_quality_enabled(enable)
+        status = "enabled" if enable else "disabled"
+        changes.append(f"Quality checks: [{'green' if enable else 'red'}]{status}[/{'green' if enable else 'red'}]")
+
+    if threshold is not None:
+        threshold = max(0, min(100, threshold))
+        config_manager.set_quality_threshold(threshold)
+        changes.append(f"Threshold: {threshold}")
+
+    if fail_security is not None:
+        config = config_manager.load()
+        if "quality" not in config:
+            config["quality"] = DEFAULT_QUALITY.copy()
+        config["quality"]["fail_on_security"] = fail_security
+        config_manager.save(config)
+        changes.append(f"Fail on security: {'yes' if fail_security else 'no'}")
+
+    if changes:
+        console.print("\n[bold cyan]Quality Settings Updated[/bold cyan]\n")
+        for change in changes:
+            console.print(f"   ✓ {change}")

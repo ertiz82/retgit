@@ -11,6 +11,7 @@ from ..integrations.registry import get_builtin_integrations
 # Package source directories
 PACKAGE_DIR = Path(__file__).parent.parent
 BUILTIN_PROMPTS_DIR = PACKAGE_DIR / "prompts"
+BUILTIN_TEMPLATES_DIR = PACKAGE_DIR / "templates"
 
 
 def get_builtin_prompts() -> list:
@@ -35,6 +36,20 @@ def copy_prompts() -> int:
         count += 1
 
     return count
+
+
+def copy_quality_template() -> bool:
+    """Copy quality prompt template to .redgit/templates/"""
+    src = BUILTIN_TEMPLATES_DIR / "quality_prompt.md"
+    if not src.exists():
+        return False
+
+    dest_dir = RETGIT_DIR / "templates"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = dest_dir / "quality_prompt.md"
+    shutil.copy2(src, dest)
+    return True
 
 
 def select_llm_provider() -> tuple:
@@ -164,6 +179,33 @@ def select_plugins() -> list:
     return selected
 
 
+def select_quality_settings() -> dict:
+    """Interactive code quality settings. Returns quality config dict."""
+    typer.echo("\n🔍 Code Quality:")
+
+    if not typer.confirm("   Enable code quality checks before push?", default=False):
+        return {"enabled": False}
+
+    threshold = typer.prompt(
+        "   Minimum quality score (0-100)",
+        default="70",
+        type=int
+    )
+    threshold = max(0, min(100, threshold))
+
+    fail_on_security = typer.confirm(
+        "   Always fail on critical security issues?",
+        default=True
+    )
+
+    return {
+        "enabled": True,
+        "threshold": threshold,
+        "fail_on_security": fail_on_security,
+        "prompt_file": "quality_prompt.md"
+    }
+
+
 def select_integrations() -> list:
     """Interactive integration selection. Returns list of selected integration names."""
     available_integrations = get_builtin_integrations()
@@ -230,6 +272,10 @@ def init_cmd():
     selected_integrations = select_integrations()
     config["integrations"] = {}
 
+    # Code quality settings
+    quality_config = select_quality_settings()
+    config["quality"] = quality_config
+
     # Editor config
     config["editor"] = {"command": ["code", "--wait"]}
 
@@ -243,6 +289,11 @@ def init_cmd():
     if prompt_count > 0:
         typer.echo(f"   ✓ {prompt_count} prompt templates copied")
 
+    # Copy quality template if enabled
+    if quality_config.get("enabled"):
+        if copy_quality_template():
+            typer.echo("   ✓ Quality prompt template copied")
+
     # Save config
     ConfigManager().save(config)
     typer.echo(f"   ✓ Config saved")
@@ -255,6 +306,9 @@ def init_cmd():
 
     if selected_plugins:
         typer.echo(f"   🧩 Plugins: {', '.join(selected_plugins)}")
+
+    if quality_config.get("enabled"):
+        typer.echo(f"   🔍 Quality: enabled (threshold: {quality_config.get('threshold', 70)})")
 
     # Install selected integrations
     if selected_integrations:

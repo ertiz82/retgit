@@ -26,7 +26,16 @@ DEFAULT_NOTIFICATIONS = {
         "session_complete": True,   # Notify on session completion
         "ci_success": True,         # Notify on CI/CD success
         "ci_failure": True,         # Notify on CI/CD failure
+        "quality_failed": True,     # Notify on quality check failure
     }
+}
+
+# Default code quality settings
+DEFAULT_QUALITY = {
+    "enabled": False,               # Master switch for quality checks
+    "threshold": 70,                # Minimum score (0-100) to pass
+    "fail_on_security": True,       # Always fail on critical/high security issues
+    "prompt_file": "quality_prompt.md",  # Prompt template file name
 }
 
 
@@ -269,8 +278,48 @@ class ConfigManager:
             "deploy_started": "Deployment started",
             "deploy_success": "Deployment succeeded",
             "deploy_failure": "Deployment failed",
+            "quality_failed": "Code quality check failed",
         }
         return descriptions.get(event, event.replace("_", " ").title())
+
+    def get_quality_config(self) -> dict:
+        """Get code quality settings with defaults."""
+        config = self.load()
+        quality = config.get("quality", {})
+
+        # Merge with defaults
+        result = DEFAULT_QUALITY.copy()
+        for key in DEFAULT_QUALITY:
+            if key in quality:
+                result[key] = quality[key]
+
+        return result
+
+    def is_quality_enabled(self) -> bool:
+        """Check if code quality checks are enabled."""
+        quality = self.get_quality_config()
+        return quality.get("enabled", False)
+
+    def get_quality_threshold(self) -> int:
+        """Get the minimum quality score threshold."""
+        quality = self.get_quality_config()
+        return quality.get("threshold", 70)
+
+    def set_quality_enabled(self, enabled: bool):
+        """Enable or disable quality checks."""
+        config = self.load()
+        if "quality" not in config:
+            config["quality"] = DEFAULT_QUALITY.copy()
+        config["quality"]["enabled"] = enabled
+        self.save(config)
+
+    def set_quality_threshold(self, threshold: int):
+        """Set the quality score threshold."""
+        config = self.load()
+        if "quality" not in config:
+            config["quality"] = DEFAULT_QUALITY.copy()
+        config["quality"]["threshold"] = max(0, min(100, threshold))
+        self.save(config)
 
 
 class StateManager:
