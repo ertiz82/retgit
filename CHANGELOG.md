@@ -1,6 +1,24 @@
 # Changelog
 
 
+# 1.1.4
+
+**Release Date:** 2025-12-11
+
+---
+
+## 🐛 Fixes
+
+- **quality report:** Now runs Semgrep on all changed files (not just Python)
+- **quality report:** Fixed inconsistency where `rg quality scan` found issues but `rg quality report` showed "passed"
+
+## ✨ Improvements
+
+- **quality report:** Multi-language support - Semgrep analyzes YAML, JSON, JS, PHP, Go, and 30+ other languages in changed files
+- **quality:** Unified analysis across `check`, `report`, and `scan` commands
+
+---
+
 # 1.1.3
 
 **Release Date:** 2025-12-11
