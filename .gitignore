@@ -41,7 +41,7 @@ htmlcov/
 .mypy_cache/
 
 # RedGit
-.redgit
+.redgit/
 
 # OS
 .DS_Store
