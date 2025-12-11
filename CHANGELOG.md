@@ -1,6 +1,100 @@
 # Changelog
 
 
+# 1.1.3
+
+**Release Date:** 2025-12-11
+
+---
+
+## 🐛 Fixes
+
+- **quality:** Fix Semgrep scan showing 0 files scanned
+- **semgrep:** Fix severity filter (use multiple `--severity` flags instead of comma-separated)
+- **semgrep:** Remove `--quiet` flag to get proper `paths.scanned` in JSON output
+- **quality:** Fix lint errors (unused imports, f-strings without placeholders)
+
+## ✨ Improvements
+
+- **quality scan:** Show scan summary with file count and language breakdown
+- **quality scan:** Better output formatting with "✓ No issues found" message
+
+---
+
+# 1.1.2
+
+**Release Date:** 2025-12-11
+
+---
+
+## 🐛 Fixes
+
+- **quality:** Fix `rg quality scan` command not accepting path argument
+- **quality:** Remove callback to eliminate `[FILE]` argument conflict with subcommands
+- **quality:** `rg quality` now shows help with available subcommands
+
+## 📦 Commands
+
+- `rg quality check [FILE]` - Check changed files (git diff)
+- `rg quality scan [PATH]` - Scan entire project with Semgrep
+- `rg quality status` - Show quality settings
+- `rg quality report` - Generate detailed report
+
+---
+
+# 1.1.1
+
+**Release Date:** 2025-12-11
+
+---
+
+## ✨ Features
+
+- **quality:** Add `rg quality scan` command for full project Semgrep scanning
+  - Scan entire project (not just git changes)
+  - Support for custom rule packs and severity filters
+  - JSON and text output formats
+  - Useful for full project security audits
+
+## 📚 Documentation
+
+- Updated `docs/commands.md` with `rg quality scan` command
+
+---
+
+# 1.1.0
+
+**Release Date:** 2025-12-11
+
+---
+
+## ✨ Features
+
+- **semgrep:** Add Semgrep integration for multi-language static analysis (35+ languages)
+- **quality:** Integrate Semgrep with quality checks for comprehensive code analysis
+- **config:** Add `rg config semgrep` command for managing Semgrep settings
+- **init:** Add Semgrep setup wizard to `rg init` with automatic installation
+
+## 📦 New Commands
+
+- `rg config semgrep` - View and manage Semgrep settings
+- `rg config semgrep --enable` - Enable Semgrep analysis (auto-installs if needed)
+- `rg config semgrep --install` - Install Semgrep
+- `rg config semgrep --add <pack>` - Add rule packs (e.g., `p/security-audit`)
+- `rg config semgrep --list-rules` - List available rule packs
+
+## 🌐 Supported Languages (via Semgrep)
+
+Python, JavaScript, TypeScript, Java, Go, C#, C/C++, PHP, Ruby, Rust, Kotlin, Swift, Scala, JSX, JSON, YAML, Bash, Docker, Terraform, HTML, Lua, Solidity, and more...
+
+## 📚 Documentation
+
+- Updated `docs/commands.md` with Semgrep commands
+- Updated `docs/configuration.md` with Semgrep config options
+- Updated `README.md` with Semgrep feature
+
+---
+
 # 1.0.5
 
 **Release Date:** 2025-12-11
