@@ -2,6 +2,23 @@
 
 RedGit supports custom integrations that you can create for your own task management systems, code hosting platforms, or any other tools.
 
+## Quick Start
+
+The fastest way to create a custom integration:
+
+```bash
+# Scaffold a new integration
+rg integration create my_tracker
+
+# This creates:
+# .redgit/integrations/my_tracker/
+# ├── __init__.py          # Integration class
+# ├── commands.py          # CLI commands
+# ├── install_schema.json  # Installation wizard
+# ├── README.md            # Documentation
+# └── prompts/             # AI prompts (optional)
+```
+
 ## Overview
 
 Custom integrations are Python files placed in your project's `.redgit/integrations/` directory. RedGit automatically discovers and loads them alongside the built-in integrations.
@@ -475,3 +492,129 @@ integrations:
 4. **Implement `after_install`** to auto-detect settings when possible
 5. **Follow naming conventions**: `{Name}Integration` class name
 6. **Add helpful docstrings** for CLI discoverability
+
+---
+
+## Publishing Your Integration
+
+Once you've created and tested your integration, you can publish it so others can install it with `rg install`.
+
+### Option 1: Publish to Your Own GitHub Repository
+
+1. **Create a GitHub repository** for your integration:
+
+   ```bash
+   # Navigate to your integration folder
+   cd .redgit/integrations/my_tracker
+
+   # Initialize git
+   git init
+   git add .
+   git commit -m "Initial commit"
+
+   # Create repo on GitHub and push
+   git remote add origin https://github.com/yourusername/redgit-my-tracker.git
+   git push -u origin main
+   ```
+
+2. **Add an `index.json`** file to the root:
+
+   ```json
+   {
+     "name": "my_tracker",
+     "version": "1.0.0",
+     "description": "My custom task tracker integration",
+     "type": "task_management",
+     "author": "Your Name",
+     "homepage": "https://github.com/yourusername/redgit-my-tracker"
+   }
+   ```
+
+3. **Others can now install it**:
+
+   ```bash
+   # Install from GitHub URL
+   rg install github:yourusername/redgit-my-tracker
+
+   # Or with full URL
+   rg install https://github.com/yourusername/redgit-my-tracker
+   ```
+
+### Option 2: Submit to Official RedGit Tap
+
+To make your integration available in the official tap (`rg install my_tracker`):
+
+1. **Fork** [github.com/ertiz82/redgit-tap](https://github.com/ertiz82/redgit-tap)
+
+2. **Add your integration** to the `integrations/` folder:
+
+   ```
+   redgit-tap/
+   └── integrations/
+       └── my_tracker/
+           ├── __init__.py
+           ├── commands.py
+           ├── install_schema.json
+           └── README.md
+   ```
+
+3. **Update `index.json`** in the root to include your integration:
+
+   ```json
+   {
+     "integrations": {
+       "my_tracker": {
+         "name": "My Tracker",
+         "version": "1.0.0",
+         "description": "Custom task tracker integration",
+         "type": "task_management",
+         "path": "integrations/my_tracker"
+       }
+     }
+   }
+   ```
+
+4. **Submit a Pull Request**
+
+Once merged, users can install with:
+
+```bash
+rg install my_tracker
+```
+
+### Repository Structure for Publishing
+
+```
+redgit-my-tracker/
+├── __init__.py           # Integration class (required)
+├── commands.py           # CLI commands (optional)
+├── install_schema.json   # Install wizard config (recommended)
+├── README.md             # Documentation (recommended)
+├── index.json            # Package metadata (required for tap)
+└── prompts/              # AI prompts (optional)
+    └── analyze.txt
+```
+
+### Versioning
+
+Use semantic versioning in your `index.json`:
+
+```json
+{
+  "version": "1.0.0"
+}
+```
+
+Users can install specific versions:
+
+```bash
+rg install my_tracker@1.0.0
+rg install my_tracker@latest
+```
+
+---
+
+## See Also
+
+- [RedGit Tap](../tap.md) - Community integrations repository
+- [Integrations Overview](index.md) - All available integrations
