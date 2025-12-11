@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=9" alt="RedGit Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=10" alt="RedGit Logo" width="400"/>
 </p>
 
 <p align="center">
@@ -63,6 +63,7 @@ rg push      # Push and update Jira/Linear
 | **Auto Transitions** | Moves issues through workflow statuses (To Do → In Progress → Done) |
 | **PR Creation** | Automatically creates pull requests with proper descriptions |
 | **Code Quality** | Built-in quality checks with ruff/flake8 + AI analysis |
+| **Semgrep Integration** | Multi-language static analysis (35+ languages) for security & best practices |
 | **CI/CD Integration** | Trigger and monitor pipelines from the command line |
 | **Plugin System** | Framework-specific prompts (Laravel, Django, etc.) |
 
@@ -78,6 +79,7 @@ rg push      # Push and update Jira/Linear
 | Auto branch creation | ✅ | ❌ | ❌ |
 | Issue status transitions | ✅ | ❌ | ❌ |
 | PR creation | ✅ | ❌ | ❌ |
+| Multi-language static analysis | ✅ | ❌ | ❌ |
 | Works with any LLM | ✅ | - | - |
 
 ---

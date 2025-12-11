@@ -224,7 +224,7 @@ rg ci logs 12345 --job build --tail 100
 
 ### `rg quality`
 
-Code quality checks with AI + linter integration.
+Code quality checks with AI + linter + Semgrep integration.
 
 ```bash
 # Check staged changes
@@ -238,7 +238,113 @@ rg quality check --branch feature/my-feature
 
 # Verbose output
 rg quality check -v
+
+# Show quality settings status
+rg quality status
+
+# Generate quality report
+rg quality report --format json -o report.json
 ```
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--commit` | `-c` | Analyze specific commit |
+| `--branch` | `-b` | Compare branch with main |
+| `--threshold` | `-t` | Quality threshold (0-100) |
+| `--verbose` | `-v` | Show detailed output |
+| `--output` | `-o` | Save report to file |
+| `--format` | `-f` | Output format: text, json |
+
+### `rg quality scan`
+
+Scan entire project with Semgrep (not just git changes). Useful for full project audits.
+
+```bash
+# Scan current directory
+rg quality scan
+
+# Scan specific directory
+rg quality scan src/
+
+# Use specific rule pack
+rg quality scan -c p/security-audit
+
+# Export as JSON
+rg quality scan -o report.json -f json
+
+# Filter by severity
+rg quality scan -s ERROR,WARNING
+
+# Verbose output with suggestions
+rg quality scan -v
+```
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | Semgrep config (e.g., auto, p/security-audit) |
+| `--severity` | `-s` | Minimum severity: ERROR, WARNING, INFO |
+| `--output` | `-o` | Save report to file |
+| `--format` | `-f` | Output format: text, json |
+| `--verbose` | `-v` | Show detailed output with suggestions |
+
+---
+
+## Semgrep Commands
+
+### `rg config semgrep`
+
+Configure Semgrep multi-language static analysis (35+ languages).
+
+```bash
+# Show Semgrep settings
+rg config semgrep
+
+# Enable Semgrep (installs if needed)
+rg config semgrep --enable
+
+# Disable Semgrep
+rg config semgrep --disable
+
+# Install Semgrep
+rg config semgrep --install
+
+# Add rule packs
+rg config semgrep --add p/security-audit
+rg config semgrep --add p/php
+rg config semgrep --add p/javascript
+
+# Remove rule pack
+rg config semgrep --remove auto
+
+# List available rule packs
+rg config semgrep --list-rules
+```
+
+**Available Rule Packs:**
+
+| Pack | Description |
+|------|-------------|
+| `auto` | Auto-detect based on project |
+| `p/security-audit` | Security vulnerabilities |
+| `p/owasp-top-ten` | OWASP Top 10 |
+| `p/python` | Python best practices |
+| `p/javascript` | JavaScript/TypeScript |
+| `p/php` | PHP rules |
+| `p/golang` | Go rules |
+| `p/java` | Java rules |
+| `p/ruby` | Ruby rules |
+| `p/rust` | Rust rules |
+| `p/csharp` | C# rules |
+| `p/kotlin` | Kotlin rules |
+| `p/swift` | Swift rules |
+| `p/docker` | Dockerfile rules |
+| `p/terraform` | Terraform/HCL rules |
+
+See more at: https://semgrep.dev/explore
 
 ---
 

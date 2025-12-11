@@ -131,6 +131,34 @@ integrations:
     project_key: my-project
     organization: my-org
     # token: Use SONAR_TOKEN env var
+
+# ============================================
+# Code Quality Settings
+# ============================================
+quality:
+  enabled: false             # Enable quality checks before push
+  threshold: 70              # Minimum score (0-100) to pass
+  fail_on_security: true     # Always fail on critical/high security issues
+  prompt_file: quality_prompt.md  # Custom quality prompt
+
+# ============================================
+# Semgrep Settings (Multi-language Static Analysis)
+# ============================================
+semgrep:
+  enabled: false             # Enable Semgrep analysis
+  configs:                   # Semgrep rule packs
+    - auto                   # Auto-detect, or specify:
+    # - p/security-audit     # Security vulnerabilities
+    # - p/owasp-top-ten      # OWASP Top 10
+    # - p/python             # Python best practices
+    # - p/javascript         # JavaScript/TypeScript
+    # - p/php                # PHP rules
+    # - p/golang             # Go rules
+  severity:                  # Minimum severity to report
+    - ERROR
+    - WARNING
+  exclude: []                # Paths to exclude
+  timeout: 300               # Timeout in seconds
 ```
 
 ---
