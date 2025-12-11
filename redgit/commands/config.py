@@ -15,7 +15,6 @@ from typing import Optional
 from rich.console import Console
 from rich.syntax import Syntax
 from rich.tree import Tree
-from rich.panel import Panel
 import yaml
 import os
 
@@ -82,9 +81,9 @@ def config_cmd(ctx: typer.Context):
     _build_tree(config, tree)
     console.print(tree)
 
-    console.print(f"\n[dim]Use 'rg config show <section>' to view a specific section[/dim]")
-    console.print(f"[dim]Use 'rg config set <path> <value>' to modify[/dim]")
-    console.print(f"[dim]Use 'rg config quality --enable' to enable quality checks[/dim]")
+    console.print("\n[dim]Use 'rg config show <section>' to view a specific section[/dim]")
+    console.print("[dim]Use 'rg config set <path> <value>' to modify[/dim]")
+    console.print("[dim]Use 'rg config quality --enable' to enable quality checks[/dim]")
 
 
 @config_app.command("show")
@@ -248,7 +247,7 @@ def notifications_cmd():
     enabled = notifications.get("enabled", True)
     status = "[green]enabled[/green]" if enabled else "[red]disabled[/red]"
     console.print(f"   Master switch: {status}")
-    console.print(f"   [dim]rg config set notifications.enabled true/false[/dim]\n")
+    console.print("   [dim]rg config set notifications.enabled true/false[/dim]\n")
 
     # Events
     console.print("   [bold]Events:[/bold]\n")
@@ -270,7 +269,7 @@ def notifications_cmd():
         icon = "[green]✓[/green]" if is_enabled else "[red]✗[/red]"
         console.print(f"   {icon} {event:20} {description}")
 
-    console.print(f"\n   [dim]Toggle: rg config set notifications.events.<event> true/false[/dim]")
+    console.print("\n   [dim]Toggle: rg config set notifications.events.<event> true/false[/dim]")
 
 
 @config_app.command("reset")
@@ -410,5 +409,154 @@ def quality_cmd(
 
     if changes:
         console.print("\n[bold cyan]Quality Settings Updated[/bold cyan]\n")
+        for change in changes:
+            console.print(f"   ✓ {change}")
+
+
+def _check_semgrep_installed() -> bool:
+    """Check if Semgrep is installed."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["semgrep", "--version"],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _install_semgrep() -> bool:
+    """Install Semgrep using pip."""
+    import subprocess
+    console.print("   Installing Semgrep...")
+    try:
+        subprocess.run(
+            ["pip", "install", "semgrep"],
+            check=True,
+            capture_output=True
+        )
+        console.print("   [green]✓ Semgrep installed successfully![/green]")
+        return True
+    except subprocess.CalledProcessError as e:
+        console.print(f"   [red]✗ Installation failed: {e}[/red]")
+        console.print("   Try manually: pip install semgrep")
+        return False
+
+
+@config_app.command("semgrep")
+def semgrep_cmd(
+    enable: bool = typer.Option(None, "--enable/--disable", help="Enable or disable Semgrep analysis"),
+    add_config: Optional[str] = typer.Option(None, "--add", "-a", help="Add a rule config (e.g., p/security-audit)"),
+    remove_config: Optional[str] = typer.Option(None, "--remove", "-r", help="Remove a rule config"),
+    install: bool = typer.Option(False, "--install", "-i", help="Install Semgrep if not installed"),
+    list_rules: bool = typer.Option(False, "--list-rules", "-l", help="Show available rule packs")
+):
+    """View or modify Semgrep settings."""
+    config_manager = ConfigManager()
+
+    # Show available rule packs
+    if list_rules:
+        console.print("\n[bold cyan]Available Semgrep Rule Packs[/bold cyan]\n")
+        console.print("   [cyan]auto[/cyan]              Auto-detect based on project languages")
+        console.print("   [cyan]p/security-audit[/cyan]  Security vulnerabilities (all languages)")
+        console.print("   [cyan]p/owasp-top-ten[/cyan]   OWASP Top 10 vulnerabilities")
+        console.print("   [cyan]p/python[/cyan]          Python best practices")
+        console.print("   [cyan]p/javascript[/cyan]      JavaScript/TypeScript rules")
+        console.print("   [cyan]p/typescript[/cyan]      TypeScript specific rules")
+        console.print("   [cyan]p/golang[/cyan]          Go rules")
+        console.print("   [cyan]p/java[/cyan]            Java rules")
+        console.print("   [cyan]p/php[/cyan]             PHP rules")
+        console.print("   [cyan]p/ruby[/cyan]            Ruby rules")
+        console.print("   [cyan]p/rust[/cyan]            Rust rules")
+        console.print("   [cyan]p/csharp[/cyan]          C# rules")
+        console.print("   [cyan]p/kotlin[/cyan]          Kotlin rules")
+        console.print("   [cyan]p/swift[/cyan]           Swift rules")
+        console.print("   [cyan]p/scala[/cyan]           Scala rules")
+        console.print("   [cyan]p/docker[/cyan]          Dockerfile rules")
+        console.print("   [cyan]p/terraform[/cyan]       Terraform/HCL rules")
+        console.print("\n   [dim]See more at: https://semgrep.dev/explore[/dim]")
+        return
+
+    # Install Semgrep
+    if install:
+        if _check_semgrep_installed():
+            console.print("   [green]✓ Semgrep is already installed[/green]")
+        else:
+            _install_semgrep()
+        return
+
+    # If no options provided, show current settings
+    if enable is None and add_config is None and remove_config is None:
+        semgrep = config_manager.get_semgrep_config()
+        is_installed = _check_semgrep_installed()
+
+        console.print("\n[bold cyan]Semgrep Settings[/bold cyan]\n")
+
+        # Installation status
+        install_status = "[green]installed[/green]" if is_installed else "[red]not installed[/red]"
+        console.print(f"   Installation: {install_status}")
+
+        # Status
+        is_enabled = semgrep.get("enabled", False)
+        status = "[green]enabled[/green]" if is_enabled else "[dim]disabled[/dim]"
+        console.print(f"   Status: {status}")
+
+        # Configs
+        configs = semgrep.get("configs", ["auto"])
+        console.print(f"   Rule packs: {', '.join(configs)}")
+
+        # Severity
+        severity = semgrep.get("severity", ["ERROR", "WARNING"])
+        console.print(f"   Severity: {', '.join(severity)}")
+
+        # Timeout
+        console.print(f"   Timeout: {semgrep.get('timeout', 300)}s")
+
+        # Excludes
+        excludes = semgrep.get("exclude", [])
+        if excludes:
+            console.print(f"   Excludes: {', '.join(excludes)}")
+
+        console.print("\n[dim]Commands:[/dim]")
+        console.print("   [dim]rg config semgrep --enable       # Enable Semgrep[/dim]")
+        console.print("   [dim]rg config semgrep --disable      # Disable Semgrep[/dim]")
+        console.print("   [dim]rg config semgrep --install      # Install Semgrep[/dim]")
+        console.print("   [dim]rg config semgrep --add p/python # Add rule pack[/dim]")
+        console.print("   [dim]rg config semgrep --remove auto  # Remove rule pack[/dim]")
+        console.print("   [dim]rg config semgrep --list-rules   # Show available packs[/dim]")
+        return
+
+    # Apply changes
+    changes = []
+
+    if enable is not None:
+        # Check if semgrep is installed when enabling
+        if enable and not _check_semgrep_installed():
+            console.print("\n[yellow]⚠️  Semgrep is not installed.[/yellow]")
+            if typer.confirm("   Install Semgrep now?", default=True):
+                if not _install_semgrep():
+                    console.print("   [red]Cannot enable Semgrep without installation.[/red]")
+                    raise typer.Exit(1)
+            else:
+                console.print("   [red]Cannot enable Semgrep without installation.[/red]")
+                console.print("   [dim]Install with: rg config semgrep --install[/dim]")
+                raise typer.Exit(1)
+
+        config_manager.set_semgrep_enabled(enable)
+        status = "enabled" if enable else "disabled"
+        changes.append(f"Semgrep: [{'green' if enable else 'red'}]{status}[/{'green' if enable else 'red'}]")
+
+    if add_config:
+        config_manager.add_semgrep_config(add_config)
+        changes.append(f"Added rule pack: [cyan]{add_config}[/cyan]")
+
+    if remove_config:
+        config_manager.remove_semgrep_config(remove_config)
+        changes.append(f"Removed rule pack: [cyan]{remove_config}[/cyan]")
+
+    if changes:
+        console.print("\n[bold cyan]Semgrep Settings Updated[/bold cyan]\n")
         for change in changes:
             console.print(f"   ✓ {change}")
