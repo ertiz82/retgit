@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=5" alt="RedGit Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=9" alt="RedGit Logo" width="400"/>
 </p>
 
 <p align="center">
@@ -507,6 +507,27 @@ class MyPlugin:
 
         {{FILES}}
         """
+```
+
+---
+
+## Documentation
+
+For detailed documentation, see:
+
+- **[Integrations Guide](docs/integrations.md)** - Task management, code hosting, CI/CD, notifications, and code quality integrations
+- **[Plugins Guide](docs/plugins.md)** - Framework plugins and release management
+- **[Workflow Strategies](docs/workflow-strategies.md)** - Local merge vs merge request strategies
+
+### Additional Integrations
+
+Looking for more integrations? Check out **[RedGit Tap](https://github.com/ertiz82/redgit-tap)** - the official repository for community integrations and plugins.
+
+```bash
+# Install integrations from the tap
+rg install slack
+rg install linear
+rg install sonarqube
 ```
 
 ---
