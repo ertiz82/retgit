@@ -3,7 +3,8 @@ Integration registry - dynamically loads and manages integrations.
 
 Supports:
 1. Builtin integrations: redgit/integrations/{name}.py or {name}/__init__.py
-2. Custom integrations: .redgit/integrations/{name}.py or {name}/__init__.py
+2. Global integrations: ~/.redgit/integrations/{name}/__init__.py (tap-installed)
+3. Project integrations: .redgit/integrations/{name}/__init__.py (custom per-project)
 
 Integration classes must:
 - Inherit from IntegrationBase (or TaskManagementBase, CodeHostingBase, etc.)
@@ -29,11 +30,21 @@ from .base import (
     CodeQualityBase
 )
 
+from ..core.config import GLOBAL_INTEGRATIONS_DIR
+
 # Builtin integrations directory (inside package)
 BUILTIN_INTEGRATIONS_DIR = Path(__file__).parent
 
-# Custom integrations directory (in project's .redgit folder)
-CUSTOM_INTEGRATIONS_DIR = Path(".redgit/integrations")
+# Global integrations directory (tap-installed, shared across projects)
+GLOBAL_INTEGRATIONS_PATH = GLOBAL_INTEGRATIONS_DIR
+
+# Project-specific integrations directory (custom per-project)
+PROJECT_INTEGRATIONS_DIR = Path(".redgit/integrations")
+
+# Core integrations that come with redgit and should not be shown in
+# integration lists or installation prompts. These are always available.
+# Note: Scout is now a core command (not an integration), so it's not listed here.
+CORE_INTEGRATIONS = set()
 
 # Cache for discovered integrations
 _integration_cache: Dict[str, Type[IntegrationBase]] = {}
@@ -42,7 +53,12 @@ _discovery_done = False
 
 def _discover_integrations(force: bool = False) -> Dict[str, Type[IntegrationBase]]:
     """
-    Discover all available integrations from builtin and custom directories.
+    Discover all available integrations from builtin, global, and project directories.
+
+    Load order (later can override earlier):
+    1. Builtin integrations (package)
+    2. Global integrations (tap-installed, ~/.redgit/integrations/)
+    3. Project integrations (custom per-project, .redgit/integrations/)
 
     Returns:
         Dict of integration_name -> integration_class
@@ -57,9 +73,13 @@ def _discover_integrations(force: bool = False) -> Dict[str, Type[IntegrationBas
     # 1. Discover builtin integrations
     _discover_from_directory(BUILTIN_INTEGRATIONS_DIR, is_builtin=True)
 
-    # 2. Discover custom integrations (can override builtin)
-    if CUSTOM_INTEGRATIONS_DIR.exists():
-        _discover_from_directory(CUSTOM_INTEGRATIONS_DIR, is_builtin=False)
+    # 2. Discover global integrations (tap-installed)
+    if GLOBAL_INTEGRATIONS_PATH.exists():
+        _discover_from_directory(GLOBAL_INTEGRATIONS_PATH, is_builtin=False)
+
+    # 3. Discover project-specific integrations (can override global)
+    if PROJECT_INTEGRATIONS_DIR.exists():
+        _discover_from_directory(PROJECT_INTEGRATIONS_DIR, is_builtin=False)
 
     _discovery_done = True
     return _integration_cache
@@ -146,9 +166,12 @@ def _find_integration_class(module, name: str) -> Optional[Type[IntegrationBase]
             continue
         attr = getattr(module, attr_name)
         if _is_valid_integration_class(attr):
-            # Verify the class's name attribute matches
-            if hasattr(attr, "name") and attr.name == name:
-                return attr
+            # Verify the class's name attribute matches (normalize hyphens/underscores)
+            if hasattr(attr, "name"):
+                attr_name_normalized = attr.name.replace("-", "_")
+                name_normalized = name.replace("-", "_")
+                if attr_name_normalized == name_normalized:
+                    return attr
 
     return None
 
@@ -194,9 +217,30 @@ def get_all_integrations() -> Dict[str, Type[IntegrationBase]]:
     return _discover_integrations()
 
 
-def get_builtin_integrations() -> List[str]:
-    """List available builtin integration names."""
-    return list(_discover_integrations().keys())
+# Alias for consistency with prompt loading
+get_all_integration_classes = get_all_integrations
+
+
+def get_builtin_integrations(include_core: bool = False) -> List[str]:
+    """
+    List available builtin integration names.
+
+    Args:
+        include_core: If True, include core integrations (like scout).
+                     If False (default), exclude them for installation lists.
+    """
+    all_integrations = list(_discover_integrations().keys())
+    if include_core:
+        return all_integrations
+    return [name for name in all_integrations if name not in CORE_INTEGRATIONS]
+
+
+def get_installable_integrations() -> List[str]:
+    """
+    List integrations available for installation.
+    Excludes core integrations that come with redgit.
+    """
+    return get_builtin_integrations(include_core=False)
 
 
 def get_integrations_by_type(integration_type: IntegrationType) -> List[str]:
@@ -291,18 +335,26 @@ def get_task_management(config: dict, active_name: Optional[str] = None) -> Opti
         active_name: Override active integration name
 
     Returns:
-        TaskManagementBase instance or None
+        TaskManagementBase instance or None if not configured or disabled
     """
     if not active_name:
         active_name = config.get("active", {}).get("task_management")
 
-    if not active_name:
+    if not active_name or active_name.lower() == "none":
         return None
 
     integration_config = config.get("integrations", {}).get(active_name, {})
+
+    # Check if explicitly disabled
+    if integration_config.get("enabled") is False:
+        return None
+
     integration = load_integration_by_name(active_name, integration_config)
 
     if integration and isinstance(integration, TaskManagementBase):
+        # Double check enabled status after setup
+        if not integration.enabled:
+            return None
         return integration
 
     return None
@@ -581,13 +633,33 @@ def get_integration_commands(name: str):
         except Exception:
             continue
 
-    # Try custom integration commands
-    custom_commands_path = CUSTOM_INTEGRATIONS_DIR / name / "commands.py"
-    if custom_commands_path.exists():
+    # Try global integration commands
+    global_commands_path = GLOBAL_INTEGRATIONS_PATH / name / "commands.py"
+    if global_commands_path.exists():
         try:
             spec = importlib.util.spec_from_file_location(
-                f"custom_commands_{name}",
-                custom_commands_path
+                f"global_commands_{name}",
+                global_commands_path
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                app_name = f"{name}_app"
+                if hasattr(module, app_name):
+                    return getattr(module, app_name)
+                if hasattr(module, "app"):
+                    return getattr(module, "app")
+        except Exception:
+            pass
+
+    # Try project-specific integration commands
+    project_commands_path = PROJECT_INTEGRATIONS_DIR / name / "commands.py"
+    if project_commands_path.exists():
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"project_commands_{name}",
+                project_commands_path
             )
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
@@ -668,11 +740,11 @@ def get_install_schema(name: str) -> Optional[Dict]:
     """
     Get install schema for an integration.
 
-    Looks for:
+    Looks for (in order):
     1. Builtin package: redgit/integrations/{name}/install_schema.json
     2. Builtin single file: redgit/integrations/{name}_install_schema.json
-    3. Custom package: .redgit/integrations/{name}/install_schema.json
-    4. Custom single file: .redgit/integrations/{name}_install_schema.json
+    3. Global package: ~/.redgit/integrations/{name}/install_schema.json
+    4. Project package: .redgit/integrations/{name}/install_schema.json
 
     Args:
         name: Integration name (e.g., "jira", "github")
@@ -680,27 +752,18 @@ def get_install_schema(name: str) -> Optional[Dict]:
     Returns:
         Schema dict or None
     """
-    # Check builtin locations
-    builtin_paths = [
+    # Check all locations in order
+    paths = [
+        # Builtin
         BUILTIN_INTEGRATIONS_DIR / name / "install_schema.json",
         BUILTIN_INTEGRATIONS_DIR / f"{name}_install_schema.json",
+        # Global (tap-installed)
+        GLOBAL_INTEGRATIONS_PATH / name / "install_schema.json",
+        # Project-specific
+        PROJECT_INTEGRATIONS_DIR / name / "install_schema.json",
     ]
 
-    for path in builtin_paths:
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                continue
-
-    # Check custom locations
-    custom_paths = [
-        CUSTOM_INTEGRATIONS_DIR / name / "install_schema.json",
-        CUSTOM_INTEGRATIONS_DIR / f"{name}_install_schema.json",
-    ]
-
-    for path in custom_paths:
+    for path in paths:
         if path.exists():
             try:
                 with open(path, "r", encoding="utf-8") as f:
