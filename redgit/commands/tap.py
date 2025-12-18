@@ -4,12 +4,13 @@ Tap system for installing integrations and plugins from GitHub repositories.
 Similar to Homebrew taps, users can install integrations/plugins from GitHub:
 
     # From default tap (ertiz82/redgit-tap)
-    rg install slack              # installs integration from default tap
-    rg install plugin:changelog   # installs plugin from default tap
+    rg install jira               # integration from official tap
+    rg install plugin:laravel     # plugin from official tap
+    rg install slack@v1.0.0       # specific version
 
-    # From custom tap
-    rg install username/integration-name
-    rg install username/integration-name@v1.0.0
+    # From custom tap (auto-adds tap first)
+    rg install myorg/my-tap jira              # integration from custom tap
+    rg install myorg/my-tap plugin:myplugin   # plugin from custom tap
 
 Default tap structure (ertiz82/redgit-tap):
     redgit-tap/
@@ -39,10 +40,16 @@ from urllib.error import HTTPError, URLError
 
 import typer
 
-from ..core.config import ConfigManager
+from ..core.config import (
+    ConfigManager,
+    GLOBAL_INTEGRATIONS_DIR,
+    GLOBAL_PLUGINS_DIR,
+    GLOBAL_TAP_REGISTRY,
+    ensure_global_dirs
+)
 
-# Tap registry file location
-TAP_REGISTRY_FILE = Path(".redgit/taps.json")
+# Global tap registry file location
+TAP_REGISTRY_FILE = GLOBAL_TAP_REGISTRY
 
 # Default tap repository
 DEFAULT_TAP_OWNER = "ertiz82"
@@ -431,29 +438,282 @@ def _register_integration_notification_events(target_dir: Path, name: str):
 def install_from_tap(
     spec: str,
     force: bool = False,
-    no_configure: bool = False
+    no_configure: bool = False,
+    tap_name: str = None
 ) -> bool:
     """
     Install an integration or plugin from a tap.
 
     Args:
         spec: Tap specification:
-            - "name" or "name@version" for default tap integration
-            - "plugin:name" for default tap plugin
-            - "owner/name" for custom tap
+            - "name" or "name@version" for integration
+            - "plugin:name" for plugin
         force: Overwrite if already exists
         no_configure: Skip configuration wizard
+        tap_name: Optional tap name to install from (None = search all taps)
 
     Returns:
         True if successful
     """
-    # Determine if default or custom tap
-    is_default = _is_default_tap_spec(spec)
+    # Parse spec to get item type and name
+    item_type, name, version = _parse_default_tap_spec(spec)
 
-    if is_default:
-        return _install_from_default_tap(spec, force, no_configure)
+    # Search for item in configured taps
+    from ..core.tap import find_item_in_taps
+
+    result = find_item_in_taps(name, item_type, tap_name)
+
+    if result:
+        tap_url, found_tap_name, item_info = result
+        return _install_from_tap_url(
+            tap_url=tap_url,
+            tap_name=found_tap_name,
+            item_type=item_type,
+            name=name,
+            item_info=item_info,
+            version=version,
+            force=force,
+            no_configure=no_configure
+        )
+    elif tap_name:
+        # Specific tap requested but item not found - show error
+        typer.secho(f"❌ '{name}' not found in tap '{tap_name}'.", fg=typer.colors.RED)
+        typer.echo(f"\n   💡 Check available items: rg tap list -v")
+        return False
     else:
-        return _install_from_custom_tap(spec, force, no_configure)
+        # No specific tap - fallback to default tap download
+        return _install_from_default_tap(spec, force, no_configure)
+
+
+def _download_from_tap_url(
+    tap_url: str,
+    item_type: str,
+    name: str,
+    item_info: Dict[str, Any],
+    version: Optional[str] = None
+) -> Path:
+    """
+    Download an item from a tap URL using the item's path from index.json.
+
+    Args:
+        tap_url: Base URL of the tap repository
+        item_type: "integration" or "plugin"
+        name: Item name
+        item_info: Item info dict from index.json (contains 'path')
+        version: Optional version/branch
+
+    Returns:
+        Path to extracted directory
+    """
+    from urllib.parse import urlparse
+
+    ref = version or "main"
+
+    # Get path from item_info, fallback to default structure
+    item_path = item_info.get("path", f"{item_type}s/{name}")
+
+    # Parse tap URL to get owner/repo
+    parsed = urlparse(tap_url)
+    path_parts = parsed.path.strip("/").split("/")
+
+    if len(path_parts) < 2:
+        raise ValueError(f"Invalid tap URL: {tap_url}")
+
+    owner, repo = path_parts[0], path_parts[1]
+
+    refs_to_try = [ref] if ref != "main" else ["main", "master"]
+
+    for try_ref in refs_to_try:
+        zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{try_ref}.zip"
+
+        if try_ref.startswith("v") or (try_ref[0].isdigit() if try_ref else False):
+            zip_url = f"https://github.com/{owner}/{repo}/archive/refs/tags/{try_ref}.zip"
+
+        try:
+            req = Request(zip_url, headers={"User-Agent": "redgit"})
+            with urlopen(req, timeout=30) as response:
+                temp_dir = Path(tempfile.mkdtemp(prefix="redgit_tap_"))
+                zip_path = temp_dir / "repo.zip"
+
+                with open(zip_path, "wb") as f:
+                    f.write(response.read())
+
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(temp_dir)
+
+                # Find extracted directory
+                repo_dir = None
+                for item in temp_dir.iterdir():
+                    if item.is_dir() and item.name != "__MACOSX":
+                        repo_dir = item
+                        break
+
+                if not repo_dir:
+                    raise FileNotFoundError("No directory found in zip")
+
+                # Find the item using path from index
+                item_dir = repo_dir / item_path
+
+                # Try variations
+                if not item_dir.exists():
+                    item_dir = repo_dir / item_path.replace("-", "_")
+                if not item_dir.exists():
+                    item_dir = repo_dir / item_path.replace("_", "-")
+
+                if not item_dir.exists():
+                    raise FileNotFoundError(
+                        f"'{name}' not found at path '{item_path}' in tap"
+                    )
+
+                # Copy to a new temp location
+                result_dir = Path(tempfile.mkdtemp(prefix="redgit_item_"))
+                shutil.copytree(item_dir, result_dir / name)
+
+                # Cleanup repo temp
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+                return result_dir / name
+
+        except HTTPError as e:
+            if e.code == 404 and try_ref == "main":
+                continue
+            raise
+
+    raise HTTPError(zip_url, 404, f"Tap repository not found: {tap_url}", {}, None)
+
+
+def _install_from_tap_url(
+    tap_url: str,
+    tap_name: str,
+    item_type: str,
+    name: str,
+    item_info: Dict[str, Any],
+    version: Optional[str] = None,
+    force: bool = False,
+    no_configure: bool = False
+) -> bool:
+    """
+    Install an item from a specific tap URL.
+
+    Args:
+        tap_url: URL of the tap repository
+        tap_name: Name of the tap
+        item_type: "integration" or "plugin"
+        name: Item name
+        item_info: Item info from index.json
+        version: Optional version
+        force: Overwrite existing
+        no_configure: Skip configuration
+
+    Returns:
+        True if successful
+    """
+    typer.echo(f"\n📦 Installing {item_type}: {name}\n")
+    typer.echo(f"   Source: {tap_name}/{item_type}s/{name}")
+    if version:
+        typer.echo(f"   Version: {version}")
+
+    # Determine target directory (global)
+    ensure_global_dirs()
+    if item_type == "integration":
+        target_dir = GLOBAL_INTEGRATIONS_DIR / name
+    else:
+        target_dir = GLOBAL_PLUGINS_DIR / name
+
+    # Check if already exists
+    if target_dir.exists() and not force:
+        typer.secho(f"❌ {item_type.capitalize()} '{name}' already exists.", fg=typer.colors.RED)
+        typer.echo(f"   Use --force to overwrite")
+        typer.echo(f"   Location: {target_dir}")
+        return False
+
+    # Download from tap
+    typer.echo(f"   Downloading from {tap_name} tap...")
+    try:
+        source_dir = _download_from_tap_url(tap_url, item_type, name, item_info, version)
+    except FileNotFoundError as e:
+        typer.secho(f"❌ {e}", fg=typer.colors.RED)
+        return False
+    except HTTPError as e:
+        typer.secho(f"❌ Failed to download: {e}", fg=typer.colors.RED)
+        return False
+    except URLError as e:
+        typer.secho(f"❌ Network error: {e}", fg=typer.colors.RED)
+        return False
+
+    # Validate
+    typer.echo(f"   Validating...")
+    try:
+        info = _validate_item(source_dir, item_type)
+        if not info["name"]:
+            info["name"] = name
+    except ValueError as e:
+        typer.secho(f"❌ Invalid {item_type}: {e}", fg=typer.colors.RED)
+        shutil.rmtree(source_dir.parent, ignore_errors=True)
+        return False
+
+    # Remove existing if force
+    if target_dir.exists() and force:
+        typer.echo(f"   Removing existing installation...")
+        shutil.rmtree(target_dir)
+
+    # Install
+    typer.echo(f"   Installing to {target_dir}...")
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_dir, target_dir)
+
+    # Cleanup
+    shutil.rmtree(source_dir.parent, ignore_errors=True)
+
+    # Update registry
+    registry = _load_tap_registry()
+    registry[name] = {
+        "source": f"{tap_name}/{item_type}s/{name}",
+        "tap_url": tap_url,
+        "version": version or "latest",
+        "item_type": item_type,
+        "integration_type": info.get("integration_type", item_info.get("type", "unknown")),
+        "description": info["description"] or item_info.get("description", ""),
+        "installed_at": str(target_dir.resolve()),
+    }
+    _save_tap_registry(registry)
+
+    # Refresh caches
+    if item_type == "integration":
+        from ..integrations.registry import refresh_integrations
+        refresh_integrations()
+
+        # Register custom notification events from the integration
+        _register_integration_notification_events(target_dir, name)
+
+    # Success
+    typer.echo("")
+    typer.secho(f"✅ Installed: {name}", fg=typer.colors.GREEN)
+    typer.echo(f"   Type: {item_type}")
+    desc = info["description"] or item_info.get("description", "")
+    if desc:
+        typer.echo(f"   {desc}")
+
+    # Configure and activate
+    if not no_configure and item_type == "integration":
+        from ..integrations.registry import get_install_schema
+        schema = get_install_schema(name)
+        if schema:
+            typer.echo("")
+            from .integration import configure_integration
+            configure_integration(name)
+        else:
+            # No schema, just enable
+            config = ConfigManager().load()
+            if "integrations" not in config:
+                config["integrations"] = {}
+            config["integrations"][name] = {"enabled": True}
+            ConfigManager().save(config)
+            typer.echo(f"\n   ✅ Integration enabled")
+    elif item_type == "plugin":
+        typer.echo(f"\n   💡 Enable with: rg plugin enable {name}")
+
+    return True
 
 
 def _install_from_default_tap(
@@ -461,7 +721,7 @@ def _install_from_default_tap(
     force: bool = False,
     no_configure: bool = False
 ) -> bool:
-    """Install from default tap (ertiz82/redgit-tap)."""
+    """Install from default tap (ertiz82/redgit-tap). Fallback when item not found in configured taps."""
     item_type, name, version = _parse_default_tap_spec(spec)
 
     typer.echo(f"\n📦 Installing {item_type}: {name}\n")
@@ -469,11 +729,12 @@ def _install_from_default_tap(
     if version:
         typer.echo(f"   Version: {version}")
 
-    # Determine target directory
+    # Determine target directory (global)
+    ensure_global_dirs()
     if item_type == "integration":
-        target_dir = Path(".redgit/integrations") / name
+        target_dir = GLOBAL_INTEGRATIONS_DIR / name
     else:
-        target_dir = Path(".redgit/plugins") / name
+        target_dir = GLOBAL_PLUGINS_DIR / name
 
     # Check if already exists
     if target_dir.exists() and not force:
@@ -547,17 +808,22 @@ def _install_from_default_tap(
     if info["description"]:
         typer.echo(f"   {info['description']}")
 
-    # Configure
+    # Configure and activate
     if not no_configure and item_type == "integration":
         from ..integrations.registry import get_install_schema
         schema = get_install_schema(name)
         if schema:
             typer.echo("")
-            if typer.confirm("   Configure now?", default=True):
-                from .integration import install_cmd as integration_install
-                integration_install(name)
+            from .integration import configure_integration
+            configure_integration(name)
         else:
-            typer.echo(f"\n   💡 Enable with: rg integration install {name}")
+            # No schema, just enable
+            config = ConfigManager().load()
+            if "integrations" not in config:
+                config["integrations"] = {}
+            config["integrations"][name] = {"enabled": True}
+            ConfigManager().save(config)
+            typer.echo(f"\n   ✅ Integration enabled")
     elif item_type == "plugin":
         typer.echo(f"\n   💡 Enable with: rg plugin enable {name}")
 
@@ -581,8 +847,9 @@ def _install_from_custom_tap(
     if version:
         typer.echo(f"   Version: {version}")
 
-    # Target directory (custom taps are always integrations)
-    target_dir = Path(".redgit/integrations") / name
+    # Target directory (global - custom taps are always integrations)
+    ensure_global_dirs()
+    target_dir = GLOBAL_INTEGRATIONS_DIR / name
 
     if target_dir.exists() and not force:
         typer.secho(f"❌ Integration '{name}' already exists.", fg=typer.colors.RED)
@@ -675,11 +942,11 @@ def uninstall_tap(name: str) -> bool:
     item_info = registry[name]
     item_type = item_info.get("item_type", "integration")
 
-    # Remove directory
+    # Remove directory (global)
     if item_type == "plugin":
-        target_dir = Path(".redgit/plugins") / name
+        target_dir = GLOBAL_PLUGINS_DIR / name
     else:
-        target_dir = Path(".redgit/integrations") / name
+        target_dir = GLOBAL_INTEGRATIONS_DIR / name
 
     if target_dir.exists():
         shutil.rmtree(target_dir)
@@ -751,50 +1018,110 @@ tap_app = typer.Typer(help="Manage tap-installed integrations and plugins")
 
 
 @tap_app.command("list")
-def list_cmd():
-    """List tap-installed integrations and plugins."""
+def list_cmd(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed info")
+):
+    """List configured taps and tap-installed items."""
+    from ..core.tap import TapManager, OFFICIAL_TAP_NAME
+
+    tap_mgr = TapManager()
+
+    # Show configured taps
+    taps = tap_mgr.list_taps()
+    if taps:
+        typer.echo("\n📦 Configured Taps:\n")
+        for tap in taps:
+            star = "⭐ " if tap.name == OFFICIAL_TAP_NAME else "   "
+            typer.echo(f"{star}{tap.name} - {len(tap.plugins)} plugins, {len(tap.integrations)} integrations")
+            if verbose:
+                typer.echo(f"      URL: {tap.url}")
+        typer.echo("")
+
+    # Show installed items
     registry = list_taps()
 
-    if not registry:
-        typer.echo("\n📦 No tap-installed items.\n")
-        typer.echo("   Install from default tap:")
-        typer.echo("      rg install <integration>      - Install integration")
-        typer.echo("      rg install plugin:<name>      - Install plugin")
-        typer.echo("")
-        typer.echo("   Install from custom tap:")
-        typer.echo("      rg install owner/integration")
-        typer.echo("")
-        typer.echo("   💡 Browse available: rg tap search")
-        return
+    if registry:
+        typer.echo("📥 Installed from taps:\n")
 
-    typer.echo("\n📦 Tap-installed items:\n")
+        # Group by type
+        integrations = {k: v for k, v in registry.items() if v.get("item_type") != "plugin"}
+        plugins = {k: v for k, v in registry.items() if v.get("item_type") == "plugin"}
 
-    # Group by type
-    integrations = {k: v for k, v in registry.items() if v.get("item_type") != "plugin"}
-    plugins = {k: v for k, v in registry.items() if v.get("item_type") == "plugin"}
+        if integrations:
+            typer.echo("   Integrations:")
+            for name, info in integrations.items():
+                source = info.get("source", "unknown")
+                version = info.get("version", "latest")
+                typer.echo(f"     • {name} ({version})")
+                if verbose:
+                    typer.echo(f"       {source}")
+            typer.echo("")
 
-    if integrations:
-        typer.echo("   Integrations:")
-        for name, info in integrations.items():
-            source = info.get("source", "unknown")
-            version = info.get("version", "latest")
-            typer.echo(f"     • {name} ({version})")
-            typer.echo(f"       {source}")
-        typer.echo("")
-
-    if plugins:
-        typer.echo("   Plugins:")
-        for name, info in plugins.items():
-            source = info.get("source", "unknown")
-            version = info.get("version", "latest")
-            typer.echo(f"     • {name} ({version})")
-            typer.echo(f"       {source}")
-        typer.echo("")
+        if plugins:
+            typer.echo("   Plugins:")
+            for name, info in plugins.items():
+                source = info.get("source", "unknown")
+                version = info.get("version", "latest")
+                typer.echo(f"     • {name} ({version})")
+                if verbose:
+                    typer.echo(f"       {source}")
+            typer.echo("")
 
     typer.echo("   💡 Commands:")
-    typer.echo("      rg tap update <name>   - Update to latest")
-    typer.echo("      rg tap update --all    - Update all")
-    typer.echo("      rg uninstall <name>    - Remove item")
+    typer.echo("      rg tap add <url>       - Add a tap repository")
+    typer.echo("      rg tap remove <name>   - Remove a tap")
+    typer.echo("      rg tap refresh         - Refresh tap caches")
+
+
+@tap_app.command("add")
+def add_cmd(
+    url: str = typer.Argument(..., help="Tap repository URL (e.g., github.com/user/repo)"),
+    name: str = typer.Option(None, "--name", "-n", help="Custom name for the tap")
+):
+    """Add a tap repository to fetch plugins and integrations from."""
+    from ..core.tap import TapManager
+
+    tap_mgr = TapManager()
+
+    typer.echo(f"\n📦 Adding tap: {url}\n")
+
+    try:
+        added_tap_name = tap_mgr.add_tap(url, name)
+        typer.secho(f"✅ Tap added: {added_tap_name}", fg=typer.colors.GREEN)
+        typer.echo(f"   URL: {url}")
+        typer.echo(f"\n   💡 View available items: rg tap list -v")
+    except ValueError as e:
+        typer.secho(f"❌ {e}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
+@tap_app.command("remove")
+def remove_cmd(
+    name_or_url: str = typer.Argument(..., help="Tap name or URL to remove")
+):
+    """Remove a tap repository."""
+    from ..core.tap import TapManager
+
+    tap_mgr = TapManager()
+
+    try:
+        tap_mgr.remove_tap(name_or_url)
+        typer.secho(f"✅ Tap removed: {name_or_url}", fg=typer.colors.GREEN)
+    except ValueError as e:
+        typer.secho(f"❌ {e}", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+
+@tap_app.command("refresh")
+def refresh_cmd():
+    """Refresh all tap caches."""
+    from ..core.tap import TapManager
+
+    tap_mgr = TapManager()
+
+    typer.echo("\n🔄 Refreshing tap caches...\n")
+    tap_mgr.refresh_cache()
+    typer.secho("✅ Tap caches refreshed", fg=typer.colors.GREEN)
 
 
 @tap_app.command("search")
@@ -901,7 +1228,8 @@ def info_cmd(name: str = typer.Argument(..., help="Item name")):
 # ==================== Main CLI Commands ====================
 
 def install_cmd(
-    spec: str = typer.Argument(..., help="Item to install: name, plugin:name, or owner/name"),
+    spec: str = typer.Argument(..., help="Item to install: name, plugin:name, or tap/repo name"),
+    tap_source: str = typer.Argument(None, help="Custom tap source (e.g., github.com/user/tap)"),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing installation"),
     no_configure: bool = typer.Option(False, "--no-configure", help="Skip configuration wizard")
 ):
@@ -909,12 +1237,55 @@ def install_cmd(
     Install integration or plugin from tap.
 
     Examples:
-        rg install slack              # Integration from default tap
-        rg install plugin:changelog   # Plugin from default tap
-        rg install user/my-tool       # From custom tap
-        rg install slack@v1.0.0       # Specific version
+        rg install jira                           # Integration from official tap
+        rg install plugin:laravel                 # Plugin from official tap
+        rg install slack@v1.0.0                   # Specific version
+        rg install myorg/my-tap jira              # From custom tap (auto-adds tap)
+        rg install myorg/my-tap plugin:myplugin   # Plugin from custom tap
     """
-    install_from_tap(spec, force=force, no_configure=no_configure)
+    # Check if first arg looks like a tap source (contains /)
+    if "/" in spec and tap_source:
+        # Format: rg install myorg/tap itemname
+        tap_url = spec
+        item_spec = tap_source
+
+        # Auto-add the tap if not already added
+        from ..core.tap import TapManager
+        tap_mgr = TapManager()
+
+        # Check if tap already exists and get its name
+        configured_taps = tap_mgr.get_configured_taps()
+        target_tap_name = None
+
+        for t in configured_taps:
+            if tap_url in t.get("url", "") or tap_url in t.get("name", ""):
+                target_tap_name = t.get("name")
+                break
+
+        if not target_tap_name:
+            typer.echo(f"\n📦 Adding tap: {tap_url}\n")
+            try:
+                target_tap_name = tap_mgr.add_tap(tap_url)
+                typer.secho(f"✅ Tap added: {target_tap_name}", fg=typer.colors.GREEN)
+            except ValueError as e:
+                typer.secho(f"❌ Failed to add tap: {e}", fg=typer.colors.RED)
+                raise typer.Exit(1)
+
+        # Now install from that specific tap
+        install_from_tap(item_spec, force=force, no_configure=no_configure, tap_name=target_tap_name)
+    elif "/" in spec and not tap_source:
+        # Old format: rg install user/repo - show help
+        typer.secho("❌ Invalid format.", fg=typer.colors.RED)
+        typer.echo("\n   To install from a custom tap:")
+        typer.echo(f"     rg install {spec} <item-name>")
+        typer.echo(f"     rg install {spec} plugin:<plugin-name>")
+        typer.echo("\n   Examples:")
+        typer.echo(f"     rg install {spec} jira")
+        typer.echo(f"     rg install {spec} plugin:laravel")
+        raise typer.Exit(1)
+    else:
+        # Standard format: rg install name or rg install plugin:name
+        install_from_tap(spec, force=force, no_configure=no_configure)
 
 
 def uninstall_cmd(

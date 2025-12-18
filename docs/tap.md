@@ -6,18 +6,19 @@
 
 ## Overview
 
-RedGit Tap provides additional integrations beyond the core package. These include:
+RedGit Tap provides all integrations for RedGit. These include:
 
-- **Task Management**: Linear, Notion, Asana, Trello
-- **Notifications**: Slack, Discord, Telegram, MS Teams
+- **Task Management**: Jira, Linear, Notion, Asana, Trello
+- **Code Hosting**: GitHub, GitLab, Bitbucket, Azure Repos
 - **CI/CD**: GitHub Actions, GitLab CI, Jenkins, CircleCI
+- **Notifications**: Slack, Discord, Telegram, MS Teams
 - **Code Quality**: SonarQube, Snyk, Codecov, Codacy
 
 ---
 
 ## Installation
 
-### Install from Tap
+### Install from Official Tap
 
 ```bash
 # Install an integration
@@ -25,11 +26,26 @@ rg install slack
 rg install linear
 rg install sonarqube
 
+# Install a plugin
+rg install plugin:laravel
+rg install plugin:changelog
+
 # Install specific version
 rg install slack@v1.0.0
 
 # List available integrations
 rg tap list
+```
+
+### Install from Custom Tap
+
+```bash
+# Install from a custom tap (auto-adds tap first)
+rg install myorg/my-tap jira
+rg install myorg/my-tap plugin:myplugin
+
+# Skip configuration wizard
+rg install myorg/my-tap slack --no-configure
 ```
 
 ### Check Installed
@@ -46,6 +62,7 @@ rg integration status
 
 | Name | Description |
 |------|-------------|
+| `jira` | Jira Cloud/Server with Scrum & Kanban support |
 | `linear` | Modern issue tracking with cycles and projects |
 | `notion` | Use Notion databases as task boards |
 | `asana` | Project and task management |
@@ -192,7 +209,10 @@ Store sensitive data in environment variables:
 
 | Integration | Variable |
 |-------------|----------|
+| Jira | `JIRA_API_TOKEN` |
 | Linear | `LINEAR_API_KEY` |
+| GitHub | `GITHUB_TOKEN` |
+| GitLab | `GITLAB_TOKEN` |
 | Slack | `SLACK_WEBHOOK_URL` |
 | Discord | `DISCORD_WEBHOOK_URL` |
 | Telegram | `TELEGRAM_BOT_TOKEN` |
@@ -202,9 +222,22 @@ Store sensitive data in environment variables:
 
 ---
 
-## Creating Custom Integrations
+## Creating Custom Tap
 
-You can create your own integrations for internal tools. See the [Custom Integration Guide](integrations/custom.md) for details.
+You can create your own tap for internal integrations and plugins. Use the official template to get started:
+
+**Template Repository**: [github.com/ertiz82/redgit-tap-template](https://github.com/ertiz82/redgit-tap-template)
+
+```bash
+# Fork or clone the template
+gh repo clone ertiz82/redgit-tap-template my-tap
+
+# Install from your custom tap
+rg install myorg/my-tap my-integration
+rg install myorg/my-tap plugin:my-plugin
+```
+
+See the [Custom Integration Guide](integrations/custom.md) for details on creating integrations.
 
 ### Integration Structure
 
