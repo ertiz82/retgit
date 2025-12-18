@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=11" alt="RedGit Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/ertiz82/redgit/main/assets/logo.svg?v=1.2.0" alt="RedGit Logo" width="400"/>
 </p>
 
 <p align="center">
@@ -121,7 +121,7 @@ rg push
 
 ```bash
 # Setup Jira
-rg integration install jira
+rg install jira
 
 # Your workflow
 rg propose        # AI matches changes with your Jira issues

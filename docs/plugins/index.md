@@ -1,58 +1,53 @@
 # Plugins
 
-RedGit supports plugins for framework-specific features and extended functionality.
+Plugins extend RedGit with framework-specific features and additional functionality like version management and changelog generation.
 
-## Available Plugins
-
-| Plugin | Type | Status | Documentation |
-|--------|------|--------|---------------|
-| Laravel | Framework | ✅ Available | [laravel.md](laravel.md) |
-| Version | Release Management | ✅ Available | [version.md](version.md) |
-| Changelog | Release Management | ✅ Available | [changelog.md](changelog.md) |
-
-## Quick Start
-
-### Check Active Plugins
-
-```bash
-rg plugin list
-```
-
-### Enable a Plugin
-
-```bash
-rg plugin enable laravel
-```
-
-### Disable a Plugin
-
-```bash
-rg plugin disable laravel
-```
+---
 
 ## Plugin Types
 
-### Framework Plugins
+| Type                    | Purpose                              | Examples              |
+|-------------------------|--------------------------------------|-----------------------|
+| **Framework**           | Smart file grouping, custom prompts  | Laravel, Django       |
+| **Release Management**  | Versioning, changelogs, git tags     | Version, Changelog    |
 
-Framework plugins provide intelligent file grouping and prompts for specific frameworks:
+---
 
-- **Laravel** - PHP Laravel framework support
-- (Planned) Django, Rails, Next.js, etc.
+## How Plugins Work
 
-### Release Management Plugins
+1. **Auto-Detection** - Framework plugins detect project type automatically
+2. **Enable/Disable** - Manually control which plugins are active
+3. **Configure** - Set plugin-specific options in config
+4. **Use** - Plugins enhance `rg propose` and add new commands
 
-These plugins help manage releases and versioning:
+### Plugin Commands
 
-- **Version** - Semantic versioning with auto file updates
-- **Changelog** - Automatic changelog generation
+```bash
+# List installed and available plugins
+rg plugin list
+rg plugin list --all
 
-## Auto-Detection
+# Enable/disable a plugin
+rg plugin enable laravel
+rg plugin disable laravel
+```
 
-Some plugins are automatically detected and activated:
+---
 
-| Plugin | Auto-Detected When |
-|--------|-------------------|
-| Laravel | `artisan` + `laravel/framework` in composer.json |
+## Installing Plugins
+
+Plugins are available from [RedGit Tap](../tap.md):
+
+```bash
+# Install a plugin
+rg install plugin:laravel
+rg install plugin:django
+
+# List available
+rg plugin list --all
+```
+
+---
 
 ## Configuration
 
@@ -60,140 +55,65 @@ Plugins are configured in `.redgit/config.yaml`:
 
 ```yaml
 plugins:
-  laravel:
-    enabled: true
+  enabled:
+    - laravel
+    - version
+    - changelog
 
+  # Plugin-specific settings
   version:
-    enabled: true
-    current: "0.2.0"
+    current: "1.0.0"
     tag_prefix: "v"
 
   changelog:
-    enabled: true
     output_dir: changelogs
     group_by_type: true
 ```
 
-## Using Plugins
-
-### Force a Specific Plugin
-
-```bash
-# Use Laravel plugin even if not auto-detected
-rg propose -p laravel
-```
-
-### Version Plugin Commands
-
-```bash
-rg version init          # Initialize versioning
-rg version show          # Show current version
-rg version release patch # Bump patch version
-rg release minor         # Shortcut for minor release
-rg release major         # Shortcut for major release
-rg release current       # Tag current version (no bump)
-rg release patch --force # Replace existing tag
-```
-
-### Changelog Plugin Commands
-
-```bash
-rg changelog init        # Initialize changelog plugin
-rg changelog generate    # Generate changelog
-rg changelog show        # Show current changelog
-```
-
 ---
 
-## Detailed Documentation
+## Built-in Plugins
 
-### Framework Plugins
+### Version Plugin
 
-- **[Laravel Plugin](laravel.md)** - Intelligent Laravel file grouping, version detection, framework file identification
+Semantic versioning with automatic file updates and git tagging.
 
-### Release Management Plugins
-
-- **[Version Plugin](version.md)** - Semantic versioning, auto file updates, git tagging
-- **[Changelog Plugin](changelog.md)** - Automatic changelog generation from commits
-
----
-
-## Plugin Architecture
-
+```bash
+rg version init           # Initialize versioning
+rg version show           # Show current version
+rg release patch          # Bump patch (1.0.x)
+rg release minor          # Bump minor (1.x.0)
+rg release major          # Bump major (x.0.0)
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Plugin Types                            │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Framework Plugins (auto-detection + prompts)               │
-│  ├── LaravelPlugin                                          │
-│  ├── DjangoPlugin (planned)                                 │
-│  └── RailsPlugin (planned)                                  │
-│                                                             │
-│  Release Management Plugins (commands)                       │
-│  ├── VersionPlugin                                          │
-│  │   ├── rg version init                                    │
-│  │   ├── rg version show                                    │
-│  │   └── rg version release [patch|minor|major|current]     │
-│  │                                                          │
-│  └── ChangelogPlugin                                        │
-│      ├── rg changelog init                                  │
-│      ├── rg changelog generate                              │
-│      └── rg changelog show                                  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+
+### Changelog Plugin
+
+Automatic changelog generation from commit history.
+
+```bash
+rg changelog init         # Initialize changelog
+rg changelog generate     # Generate from commits
+rg changelog show         # Show current changelog
 ```
 
 ---
 
 ## Creating Custom Plugins
 
-### Framework Plugin
+You can create custom plugins for your framework or workflow. Place them in `.redgit/plugins/`:
 
-```python
-# redgit/plugins/django.py
-
-from .base import Plugin
-
-class DjangoPlugin(Plugin):
-    name = "django"
-
-    def match(self) -> bool:
-        """Check if this is a Django project"""
-        return Path("manage.py").exists() and Path("settings.py").exists()
-
-    def get_prompt(self) -> str:
-        """Return Django-specific prompt"""
-        return """
-        # Django Project Commit Grouping
-
-        Group files by Django app and functionality:
-        - Models with their migrations
-        - Views with their templates
-        - Admin configurations
-        ...
-        """
+```
+.redgit/plugins/my-plugin/
+├── __init__.py          # Plugin class (required)
+└── prompt.md            # Custom prompt (optional)
 ```
 
-### Register Plugin
-
-Add to `redgit/plugins/registry.py`:
-
-```python
-def get_builtin_plugins():
-    return ["laravel", "django"]  # Add new plugin
-```
+See [Custom Plugin Guide](custom.md) for detailed instructions.
 
 ---
 
-## Best Practices
-
-1. **Let plugins auto-detect** - Plugins will activate when appropriate
-2. **Use version plugin for releases** - Keeps all version files in sync
-3. **Generate changelogs for major releases** - Helps document changes
-4. **Configure plugin-specific settings** - Each plugin has its own options
-
 ## See Also
 
-- [Workflows](../workflows.md)
-- [Integrations](../integrations/index.md)
+- [RedGit Tap](../tap.md) - Browse and install plugins
+- [Custom Plugins](custom.md) - Create your own
+- [Configuration](../configuration.md) - Full config reference

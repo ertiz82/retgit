@@ -76,61 +76,34 @@ plugins:
 # ============================================
 # Integration Configurations
 # ============================================
+# All integrations are installed from RedGit Tap:
+#   rg install jira
+#   rg install github
+#   rg install slack
+#
+# See: https://github.com/ertiz82/redgit-tap
+
 integrations:
-  # --- Jira ---
+  # Example: Jira (after: rg install jira)
   jira:
     site: https://your-domain.atlassian.net
     email: you@example.com
     project_key: PROJ
-    board_type: scrum        # scrum | kanban | none
-    board_id: null           # Auto-detected if empty
-    story_points_field: customfield_10016
-    branch_pattern: "feature/{issue_key}-{description}"
     # token: Use JIRA_API_TOKEN env var
+    issue_language: en           # Language for issue titles/descriptions (en, tr, de, etc.)
+    branch_pattern: feature/{issue_key}
+    transition_strategy: auto    # auto | ask
 
-  # --- GitHub ---
+  # Example: GitHub (after: rg install github)
   github:
     owner: username
     repo: reponame
-    default_base: main
-    auto_pr: false
     # token: Use GITHUB_TOKEN env var
 
-  # --- GitLab ---
-  gitlab:
-    url: https://gitlab.com
-    project_id: "12345"      # or "group/project"
-    default_base: main
-    # token: Use GITLAB_TOKEN env var
-
-  # --- GitHub Actions ---
-  github-actions:
-    owner: username
-    repo: reponame
-    # token: Use GITHUB_TOKEN env var
-
-  # --- Jenkins ---
-  jenkins:
-    url: https://jenkins.company.com
-    username: your-username
-    job_name: my-pipeline
-    # token: Use JENKINS_API_TOKEN env var
-
-  # --- Slack ---
+  # Example: Slack (after: rg install slack)
   slack:
     webhook_url: https://hooks.slack.com/services/xxx
     channel: "#dev-notifications"
-
-  # --- Discord ---
-  discord:
-    webhook_url: https://discord.com/api/webhooks/xxx
-
-  # --- SonarQube ---
-  sonarqube:
-    host: https://sonarcloud.io
-    project_key: my-project
-    organization: my-org
-    # token: Use SONAR_TOKEN env var
 
 # ============================================
 # Code Quality Settings

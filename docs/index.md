@@ -34,16 +34,28 @@ Welcome to the RedGit documentation. RedGit is an AI-powered Git workflow assist
 rg init      # Initialize RedGit in your project
 rg propose   # Analyze changes and create commits
 rg push      # Push branches and complete issues
+rg scout     # AI-powered project analysis and planning
 ```
 
-### Integration Types
+### Core Features
+
+| Feature | Description |
+|---------|-------------|
+| AI Commit Grouping | Intelligently groups related file changes |
+| Scout | AI-powered project analysis and task planning |
+| Quality Checks | Code quality analysis with Semgrep + AI |
+| Version Management | Semantic versioning with plugins |
+
+### Integration Types (from Tap)
+
+All integrations are available from [RedGit Tap](https://github.com/ertiz82/redgit-tap):
 
 | Type | Purpose | Examples |
 |------|---------|----------|
-| Task Management | Issue tracking | Jira, Linear, Asana |
-| Code Hosting | Git hosting, PRs | GitHub, GitLab |
+| Task Management | Issue tracking | Jira, Linear, Asana, Notion |
+| Code Hosting | Git hosting, PRs | GitHub, GitLab, Bitbucket |
 | CI/CD | Pipelines, builds | GitHub Actions, Jenkins |
-| Notifications | Alerts, messages | Slack, Discord |
+| Notifications | Alerts, messages | Slack, Discord, Telegram |
 | Code Quality | Analysis, scanning | SonarQube, Snyk |
 
 ---
@@ -58,9 +70,6 @@ docs/
 ├── configuration.md         # Config file options
 ├── integrations/
 │   ├── index.md            # All integrations overview
-│   ├── jira.md             # Jira integration
-│   ├── github.md           # GitHub integration
-│   ├── scout.md            # Scout AI integration
 │   └── custom.md           # Custom integration guide
 ├── plugins/
 │   ├── index.md            # Plugin overview
@@ -74,14 +83,29 @@ docs/
 
 ---
 
-## Need More Integrations?
+## Install Integrations from Tap
 
-Check out **[RedGit Tap](https://github.com/ertiz82/redgit-tap)** - the official repository for community integrations with 30+ integrations including Linear, Notion, Slack, Discord, SonarQube, and more.
+All integrations are available from **[RedGit Tap](https://github.com/ertiz82/redgit-tap)**:
 
 ```bash
-rg install slack
+# Task Management
+rg install jira
 rg install linear
-rg install sonarqube
+
+# Notifications
+rg install slack
+rg install discord
+
+# Code Hosting
+rg install github
+rg install gitlab
+
+# CI/CD
+rg install github-actions
+rg install jenkins
+
+# List available
+rg integration list --all
 ```
 
 ---

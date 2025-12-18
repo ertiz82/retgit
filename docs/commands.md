@@ -37,6 +37,21 @@ rg propose --no-task
 # Link all changes to a specific task (single commit)
 rg propose --task 123
 rg propose -t PROJ-123
+
+# Dry-run: See what would happen without making changes
+rg propose --dry-run
+rg propose -n
+
+# Verbose mode: Show prompts, AI responses, and debug info
+rg propose --verbose
+rg propose -v
+
+# Detailed mode: Generate better messages using file diffs
+rg propose --detailed
+rg propose -d
+
+# Combine flags for debugging
+rg propose -v -n -d
 ```
 
 **Options:**
@@ -46,7 +61,75 @@ rg propose -t PROJ-123
 | `--prompt` | `-p` | Use specific prompt or plugin |
 | `--task` | `-t` | Link all changes to specific task |
 | `--no-task` | | Skip task management integration |
-| `--verbose` | `-v` | Show detailed output |
+| `--dry-run` | `-n` | Analyze without making changes (preview mode) |
+| `--verbose` | `-v` | Show detailed output (prompts, responses, debug) |
+| `--detailed` | `-d` | Generate detailed messages using file diffs |
+
+#### Dry-Run Mode (`--dry-run`, `-n`)
+
+Preview what RedGit would do without making any changes:
+
+```bash
+rg propose -n
+```
+
+Shows:
+- How changes would be grouped
+- Which issues would be matched or created
+- Branch names that would be created
+- No commits, branches, or issues are actually created
+
+#### Verbose Mode (`--verbose`, `-v`)
+
+Show detailed information about the AI analysis process:
+
+```bash
+rg propose -v
+```
+
+Displays:
+- **Config paths**: Which config files are being used
+- **Task Management Config**: Integration name, issue language, project key
+- **Prompt Sources**: Which prompt files are being used (user vs builtin)
+- **Full AI Prompt**: The complete prompt sent to the LLM
+- **Raw AI Response**: The unprocessed response from the LLM
+- **Parsed Groups**: How the response was interpreted
+
+This is invaluable for debugging prompt issues or understanding AI decisions.
+
+#### Detailed Mode (`--detailed`, `-d`)
+
+Generate more accurate commit messages by analyzing actual file diffs:
+
+```bash
+rg propose -d
+```
+
+How it works:
+1. Initial analysis groups files by semantic similarity
+2. For each group, file diffs are sent to LLM
+3. LLM generates detailed `commit_title`, `commit_body`, `issue_title`, `issue_description`
+4. If integration has custom prompts, they're used for issue content
+
+Benefits:
+- More accurate commit messages based on actual code changes
+- Better issue descriptions with technical details
+- Localized issue titles/descriptions (respects `issue_language` setting)
+
+Note: Detailed mode is slower as it makes additional LLM calls per group.
+
+#### Combining Flags
+
+```bash
+# Full debug mode: verbose + dry-run + detailed
+rg propose -v -n -d
+```
+
+This shows the complete analysis without making changes - perfect for:
+- Debugging integration prompts
+- Verifying `issue_language` is working
+- Understanding how files are grouped
+- Testing custom prompts
 
 ### `rg push`
 
@@ -88,39 +171,107 @@ rg push --no-ci
 
 ---
 
-## Integration Commands
+## Scout Command (AI Project Analysis)
 
-### `rg integration`
+### `rg scout`
 
-Manage integrations.
+AI-powered project analysis and task planning. Scout is a core feature that helps you understand your codebase, plan tasks, and generate implementation strategies.
 
 ```bash
-# List available integrations
-rg integration list
+# Analyze project and suggest tasks
+rg scout
 
-# Install an integration
-rg integration install jira
-rg integration install github
+# Analyze with specific depth
+rg scout --depth detailed
 
-# Show integration status
-rg integration status
+# Analyze specific directory
+rg scout src/
 
-# Remove an integration
-rg integration remove jira
+# Generate task breakdown for a feature
+rg scout --feature "add user authentication"
+
+# Output as JSON
+rg scout --format json -o analysis.json
 ```
+
+**Options:**
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--depth` | `-d` | Analysis depth: quick, normal, detailed |
+| `--feature` | `-f` | Analyze specific feature or task |
+| `--format` | | Output format: text, json, markdown |
+| `--output` | `-o` | Save analysis to file |
+| `--max-files` | | Maximum files to analyze |
+
+**Example Output:**
+
+```
+🔍 Project Analysis: my-project
+
+📊 Structure:
+   - 45 source files
+   - 12 test files
+   - Primary language: Python
+
+🎯 Suggested Tasks:
+   1. Add input validation to user forms
+   2. Implement caching for API responses
+   3. Add unit tests for auth module
+
+📝 Implementation Notes:
+   - Consider using Pydantic for validation
+   - Redis recommended for caching layer
+```
+
+---
+
+## Integration Commands
 
 ### `rg install`
 
-Install integration from RedGit Tap.
+Install integration or plugin from RedGit Tap. Downloads, configures, and activates in one step.
 
 ```bash
-# Install from tap
+# Install integration from official tap
+rg install jira
 rg install slack
-rg install linear
-rg install sonarqube
+rg install github
+
+# Install plugin from official tap
+rg install plugin:laravel
+rg install plugin:changelog
 
 # Install specific version
 rg install slack@v1.0.0
+
+# Install from custom tap (auto-adds tap first)
+rg install myorg/my-tap jira
+rg install myorg/my-tap plugin:myplugin
+
+# Skip configuration wizard
+rg install slack --no-configure
+```
+
+### `rg integration`
+
+Manage installed integrations.
+
+```bash
+# List installed integrations
+rg integration list
+
+# List all available from taps
+rg integration list --all
+
+# Reconfigure an integration
+rg integration config jira
+
+# Set active integration for its type
+rg integration use linear
+
+# Remove an integration
+rg integration remove jira
 ```
 
 ---
@@ -146,6 +297,8 @@ rg plugin disable laravel
 
 ## Version & Release Commands
 
+> **Requires:** `version` plugin enabled (`rg plugin enable version`)
+
 ### `rg version`
 
 Manage semantic versioning.
@@ -168,19 +321,27 @@ rg release current       # Tag current version (no bump)
 rg release patch --force # Replace existing tag
 ```
 
+---
+
+## Changelog Commands
+
+> **Requires:** `changelog` plugin enabled (`rg plugin enable changelog`)
+
 ### `rg changelog`
 
-Manage changelog generation.
+Automatic changelog generation from commit history.
 
 ```bash
 rg changelog init        # Initialize changelog plugin
-rg changelog generate    # Generate changelog
+rg changelog generate    # Generate changelog from commits
 rg changelog show        # Show current changelog
 ```
 
 ---
 
 ## CI/CD Commands
+
+> **Requires:** CI/CD integration installed (e.g., `rg install github-actions`)
 
 ### `rg ci`
 
@@ -370,9 +531,11 @@ rg config get llm.provider
 
 ## Notification Commands
 
+> **Requires:** Notification integration installed (e.g., `rg install slack`)
+
 ### `rg notify`
 
-Send custom notifications (requires notification integration).
+Send custom notifications.
 
 ```bash
 rg notify "Deployment complete!"
