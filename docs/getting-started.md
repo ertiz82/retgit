@@ -172,30 +172,23 @@ See [Configuration](configuration.md) for all options.
 
 ## Adding Integrations
 
-### Task Management (Jira, Linear, etc.)
+All integrations are available from [RedGit Tap](https://github.com/ertiz82/redgit-tap):
 
 ```bash
-rg integration install jira
-```
-
-Or from RedGit Tap:
-
-```bash
+# Task Management
+rg install jira
 rg install linear
-rg install asana
-```
 
-### Code Hosting (GitHub, GitLab)
+# Code Hosting
+rg install github
+rg install gitlab
 
-```bash
-rg integration install github
-```
-
-### Notifications (Slack, Discord)
-
-```bash
+# Notifications
 rg install slack
 rg install discord
+
+# List all available
+rg integration list --all
 ```
 
 ---

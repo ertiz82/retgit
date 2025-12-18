@@ -495,6 +495,185 @@ integrations:
 
 ---
 
+## Integration Prompts
+
+Task management integrations can provide custom prompts for generating issue titles and descriptions. This allows:
+- Localized issue content (e.g., Turkish, German, Spanish)
+- Company-specific formatting
+- Domain-specific terminology
+
+### How Integration Prompts Work
+
+When `rg propose --detailed` is used:
+1. RedGit analyzes file diffs for each commit group
+2. If integration has custom prompts, they're used to generate issue content
+3. The LLM follows your prompts to create localized/customized issue titles and descriptions
+
+### Prompt Priority
+
+1. **User-exported prompts** (highest priority): `.redgit/prompts/integrations/{name}/`
+2. **Built-in integration prompts**: Packaged with the integration
+3. **RedGit default prompts** (fallback): Generic issue generation
+
+### Adding Prompts to Your Integration
+
+Create a `prompts/` directory in your integration:
+
+```
+.redgit/integrations/my_tracker/
+├── __init__.py
+├── commands.py
+├── install_schema.json
+└── prompts/
+    ├── issue_title.md
+    └── issue_description.md
+```
+
+#### issue_title.md
+
+```markdown
+Generate a clear, concise issue title in Turkish.
+
+Requirements:
+- Maximum 80 characters
+- Use action verbs (Ekle, Düzelt, Güncelle, Kaldır)
+- Be specific about what changed
+- Don't include technical jargon
+
+Examples:
+- "Kullanıcı giriş formuna doğrulama ekle"
+- "Ödeme sayfasındaki hata düzelt"
+- "Dashboard performansını iyileştir"
+```
+
+#### issue_description.md
+
+```markdown
+Generate a detailed issue description in Turkish.
+
+Structure:
+1. **Özet**: One sentence summary
+2. **Yapılan Değişiklikler**: Bullet list of changes
+3. **Teknik Detaylar**: Implementation notes (optional)
+4. **Test Notları**: How to verify the changes
+
+Use professional but accessible language.
+```
+
+### Implementing Prompt Support
+
+Your integration inherits prompt methods from `TaskManagementBase`:
+
+```python
+class MyTrackerIntegration(TaskManagementBase):
+    name = "my_tracker"
+
+    # These methods are inherited:
+    # - get_prompt(name): Get prompt (user-exported or builtin)
+    # - has_user_prompt(name): Check if user has custom prompt
+    # - get_user_prompt(name): Get only user-exported prompt
+    # - export_prompts(): Export prompts for customization
+
+    def _get_builtin_prompt(self, prompt_name: str) -> str:
+        """Return built-in prompts for this integration."""
+        prompts = {
+            "issue_title": """Generate a clear issue title...""",
+            "issue_description": """Generate a detailed description..."""
+        }
+        return prompts.get(prompt_name)
+```
+
+### Issue Language Configuration
+
+Users can set their preferred language in config:
+
+```yaml
+integrations:
+  jira:
+    enabled: true
+    site: https://company.atlassian.net
+    project_key: PROJ
+    issue_language: tr  # Turkish
+```
+
+Supported language codes:
+- `en` - English (default)
+- `tr` - Turkish
+- `de` - German
+- `fr` - French
+- `es` - Spanish
+- `pt` - Portuguese
+- `it` - Italian
+- `ru` - Russian
+- `zh` - Chinese
+- `ja` - Japanese
+- `ko` - Korean
+
+When `issue_language` is set, RedGit:
+1. Uses custom prompts if available
+2. Instructs LLM to generate `issue_title` and `issue_description` in that language
+3. Keeps `commit_title` and `commit_body` in English (git convention)
+
+### Exporting Prompts for Customization
+
+Users can export your integration's prompts to customize them:
+
+```python
+# In your integration
+class MyTrackerIntegration(TaskManagementBase):
+    def export_prompts(self, target_dir: str = None) -> list:
+        """Export prompts for user customization."""
+        from pathlib import Path
+        from ..core.config import RETGIT_DIR
+
+        target = Path(target_dir) if target_dir else RETGIT_DIR / "prompts" / "integrations" / self.name
+        target.mkdir(parents=True, exist_ok=True)
+
+        exported = []
+        for prompt_name in ["issue_title", "issue_description"]:
+            content = self._get_builtin_prompt(prompt_name)
+            if content:
+                path = target / f"{prompt_name}.md"
+                path.write_text(content, encoding="utf-8")
+                exported.append(str(path))
+
+        return exported
+```
+
+Users can then run:
+```bash
+# Export Jira prompts for customization
+rg integration prompts jira --export
+
+# Creates:
+# .redgit/prompts/integrations/jira/issue_title.md
+# .redgit/prompts/integrations/jira/issue_description.md
+```
+
+### Verbose Mode for Debugging
+
+Use verbose mode to verify prompts are being used:
+
+```bash
+rg propose -v -d -n
+```
+
+Output shows:
+```
+═══ Integration Prompts ═══
+✓ Using USER-EXPORTED prompts for issue generation
+  issue_title: .redgit/prompts/integrations/jira/issue_title.md
+  issue_description: .redgit/prompts/integrations/jira/issue_description.md
+
+═══ Detailed Analysis: Group 1/3 ═══
+Prompt Source: integration prompts
+╭─── LLM Prompt (Group 1) ───╮
+│ ...your custom prompt...   │
+╰────────────────────────────╯
+```
+
+---
+
 ## Publishing Your Integration
 
 Once you've created and tested your integration, you can publish it so others can install it with `rg install`.
