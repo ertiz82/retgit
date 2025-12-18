@@ -2,9 +2,25 @@ from pathlib import Path
 from typing import Optional, Any, List
 import yaml
 
+# Global RedGit directory (shared across all projects)
+GLOBAL_REDGIT_DIR = Path.home() / ".redgit"
+GLOBAL_TAPS_DIR = GLOBAL_REDGIT_DIR / "taps"
+GLOBAL_INTEGRATIONS_DIR = GLOBAL_REDGIT_DIR / "integrations"
+GLOBAL_PLUGINS_DIR = GLOBAL_REDGIT_DIR / "plugins"
+GLOBAL_TAP_REGISTRY = GLOBAL_REDGIT_DIR / "taps.json"
+
+# Project-specific RedGit directory
 RETGIT_DIR = Path(".redgit")
 CONFIG_PATH = RETGIT_DIR / "config.yaml"
 STATE_PATH = RETGIT_DIR / "state.yaml"
+
+
+def ensure_global_dirs():
+    """Ensure global RedGit directories exist."""
+    GLOBAL_REDGIT_DIR.mkdir(exist_ok=True)
+    GLOBAL_TAPS_DIR.mkdir(exist_ok=True)
+    GLOBAL_INTEGRATIONS_DIR.mkdir(exist_ok=True)
+    GLOBAL_PLUGINS_DIR.mkdir(exist_ok=True)
 
 # Default workflow configuration
 DEFAULT_WORKFLOW = {

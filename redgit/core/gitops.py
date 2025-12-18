@@ -137,6 +137,65 @@ class GitOps:
         except ValueError:
             return False
 
+    def get_diffs_for_files(self, files: List[str]) -> str:
+        """
+        Get combined diff output for a list of files.
+
+        Args:
+            files: List of file paths to get diffs for
+
+        Returns:
+            Combined diff string for all specified files
+        """
+        import subprocess
+
+        diffs = []
+
+        for file_path in files:
+            try:
+                # Try to get diff for staged or unstaged changes
+                # First try unstaged
+                result = subprocess.run(
+                    ["git", "diff", "--", file_path],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repo.working_dir
+                )
+
+                if result.stdout.strip():
+                    diffs.append(f"# {file_path}\n{result.stdout}")
+                    continue
+
+                # Try staged
+                result = subprocess.run(
+                    ["git", "diff", "--cached", "--", file_path],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.repo.working_dir
+                )
+
+                if result.stdout.strip():
+                    diffs.append(f"# {file_path}\n{result.stdout}")
+                    continue
+
+                # For untracked files, show the file content as "new file"
+                from pathlib import Path
+                path = Path(self.repo.working_dir) / file_path
+                if path.exists() and path.is_file():
+                    try:
+                        content = path.read_text(encoding='utf-8', errors='ignore')
+                        # Truncate large files
+                        if len(content) > 2000:
+                            content = content[:2000] + "\n... (truncated)"
+                        diffs.append(f"# {file_path} (new file)\n+++ {file_path}\n{content}")
+                    except Exception:
+                        pass
+
+            except Exception:
+                continue
+
+        return "\n\n".join(diffs)
+
     def create_branch_and_commit(
         self,
         branch_name: str,
