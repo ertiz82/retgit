@@ -301,14 +301,138 @@ def _push_local_merge_strategy(
 
 
 def _complete_issues(issues: List[str], task_mgmt):
-    """Mark issues as Done using status_map from config."""
+    """Mark issues as completed using after_push status mapping from config.
+
+    If transition_strategy is 'ask', prompts user to select target status.
+    If transition_strategy is 'auto', uses status mapping and auto-advances if needed.
+    """
+    # Check transition strategy
+    strategy = getattr(task_mgmt, 'transition_strategy', 'auto')
+
+    if strategy == 'ask':
+        _complete_issues_interactive(issues, task_mgmt)
+    else:
+        _complete_issues_auto(issues, task_mgmt)
+
+
+def _complete_issues_auto(issues: List[str], task_mgmt):
+    """Auto-transition issues using status mapping."""
     for issue_key in issues:
         try:
-            # Use "done" status - will try all mapped statuses from config
-            if task_mgmt.transition_issue(issue_key, "done"):
-                console.print(f"[green]  ✓ {issue_key} → Done[/green]")
+            # Get current status before transition
+            issue = task_mgmt.get_issue(issue_key)
+            old_status = issue.status if issue else "Unknown"
+
+            # Use "after_push" status - will try all mapped statuses, then auto-advance
+            if task_mgmt.transition_issue(issue_key, "after_push"):
+                # Get new status after transition
+                issue = task_mgmt.get_issue(issue_key)
+                new_status = issue.status if issue else "Done"
+                console.print(f"[green]  ✓ {issue_key}: {old_status} → {new_status}[/green]")
             else:
-                console.print(f"[yellow]  ⚠️  {issue_key} could not be transitioned[/yellow]")
+                console.print(f"[yellow]  ⚠️  {issue_key} could not be transitioned (no available transitions)[/yellow]")
+        except Exception as e:
+            console.print(f"[red]  ❌ {issue_key} error: {e}[/red]")
+
+
+def _complete_issues_interactive(issues: List[str], task_mgmt):
+    """Interactively ask user to select target status for each issue."""
+    from rich.prompt import Prompt
+
+    # Track user's choice for "apply to all"
+    apply_to_all_choice = None
+
+    for issue_key in issues:
+        try:
+            # Get current issue info
+            issue = task_mgmt.get_issue(issue_key)
+            old_status = issue.status if issue else "Unknown"
+            summary = issue.summary[:50] + "..." if issue and len(issue.summary) > 50 else (issue.summary if issue else "")
+
+            # Get available transitions
+            transitions = task_mgmt.get_available_transitions(issue_key)
+
+            if not transitions:
+                console.print(f"[yellow]  ⚠️  {issue_key} has no available transitions[/yellow]")
+                continue
+
+            # If user chose "apply to all" previously
+            if apply_to_all_choice is not None:
+                if apply_to_all_choice == "skip":
+                    console.print(f"[dim]  - {issue_key}: Skipped (apply to all)[/dim]")
+                    continue
+                else:
+                    # Try to find the same transition
+                    matching = [t for t in transitions if t["to"] == apply_to_all_choice]
+                    if matching:
+                        if task_mgmt.transition_issue_by_id(issue_key, matching[0]["id"]):
+                            console.print(f"[green]  ✓ {issue_key}: {old_status} → {apply_to_all_choice}[/green]")
+                        else:
+                            console.print(f"[yellow]  ⚠️  {issue_key} could not be transitioned[/yellow]")
+                        continue
+                    else:
+                        # Target status not available for this issue, ask again
+                        console.print(f"[dim]  Note: '{apply_to_all_choice}' not available for {issue_key}[/dim]")
+                        apply_to_all_choice = None
+
+            # Show issue info
+            console.print(f"\n[cyan]  {issue_key}[/cyan] [dim]({old_status})[/dim]")
+            if summary:
+                console.print(f"  [dim]{summary}[/dim]")
+
+            # Show options
+            console.print("  [bold]Available transitions:[/bold]")
+            for i, t in enumerate(transitions, 1):
+                console.print(f"    [{i}] {t['to']}")
+            console.print(f"    [0] Skip (don't change)")
+            console.print(f"    [a] Apply to all remaining issues")
+
+            # Get user choice
+            while True:
+                choice = Prompt.ask("  Select", default="1")
+
+                if choice.lower() == "a":
+                    # Apply to all - ask which status
+                    console.print("  [dim]Apply which status to all remaining issues?[/dim]")
+                    for i, t in enumerate(transitions, 1):
+                        console.print(f"    [{i}] {t['to']}")
+                    console.print(f"    [0] Skip all")
+
+                    all_choice = Prompt.ask("  Select for all", default="1")
+                    if all_choice == "0":
+                        apply_to_all_choice = "skip"
+                        console.print(f"[dim]  - {issue_key}: Skipped[/dim]")
+                        break
+                    elif all_choice.isdigit() and 1 <= int(all_choice) <= len(transitions):
+                        idx = int(all_choice) - 1
+                        apply_to_all_choice = transitions[idx]["to"]
+                        if task_mgmt.transition_issue_by_id(issue_key, transitions[idx]["id"]):
+                            console.print(f"[green]  ✓ {issue_key}: {old_status} → {apply_to_all_choice}[/green]")
+                        else:
+                            console.print(f"[yellow]  ⚠️  {issue_key} could not be transitioned[/yellow]")
+                        break
+                    else:
+                        console.print("[red]  Invalid choice[/red]")
+                        continue
+
+                elif choice == "0":
+                    console.print(f"[dim]  - {issue_key}: Skipped[/dim]")
+                    break
+
+                elif choice.isdigit() and 1 <= int(choice) <= len(transitions):
+                    idx = int(choice) - 1
+                    target_status = transitions[idx]["to"]
+                    transition_id = transitions[idx]["id"]
+
+                    if task_mgmt.transition_issue_by_id(issue_key, transition_id):
+                        console.print(f"[green]  ✓ {issue_key}: {old_status} → {target_status}[/green]")
+                    else:
+                        console.print(f"[yellow]  ⚠️  {issue_key} could not be transitioned[/yellow]")
+                    break
+
+                else:
+                    console.print("[red]  Invalid choice[/red]")
+
         except Exception as e:
             console.print(f"[red]  ❌ {issue_key} error: {e}[/red]")
 
@@ -388,7 +512,7 @@ def _push_current_branch(
 
             exit_code = os.system("git push --tags")
             if exit_code == 0:
-                console.print(f"[green]✓ Tags pushed[/green]")
+                console.print("[green]✓ Tags pushed[/green]")
             else:
                 console.print(f"[yellow]⚠️  Tag push failed (exit code {exit_code})[/yellow]")
 
@@ -488,7 +612,7 @@ def _trigger_cicd_pipeline(cicd, config: dict, branch: str, wait: bool = False):
     """Trigger CI/CD pipeline and optionally wait for completion."""
     import time
 
-    console.print(f"\n[bold cyan]CI/CD Pipeline[/bold cyan]")
+    console.print("\n[bold cyan]CI/CD Pipeline[/bold cyan]")
 
     try:
         # Trigger the pipeline
@@ -519,11 +643,11 @@ def _trigger_cicd_pipeline(cicd, config: dict, branch: str, wait: bool = False):
                 break
 
             if status.status in ("success", "passed"):
-                console.print(f"[green]Pipeline completed successfully![/green]")
+                console.print("[green]Pipeline completed successfully![/green]")
                 _send_ci_notification(config, branch, "success", pipeline.url)
                 return
             elif status.status in ("failed", "error", "failure"):
-                console.print(f"[red]Pipeline failed![/red]")
+                console.print("[red]Pipeline failed![/red]")
                 _send_ci_notification(config, branch, "failed", pipeline.url)
                 return
             elif status.status in ("cancelled", "canceled", "skipped"):
@@ -684,7 +808,7 @@ def _run_quality_check(config_manager: ConfigManager, config: dict) -> bool:
                     and i.get("type", "").lower() == "security"
                 ]
                 if security_issues:
-                    console.print(f"[red]✗ Critical security issues found![/red]")
+                    console.print("[red]✗ Critical security issues found![/red]")
                     _display_result(result, threshold)
                     _send_quality_failed_notification(config, score, threshold)
                     return False
@@ -815,12 +939,12 @@ def _display_conflict_error(conflict_files: List[str], branch: str):
             console.print(f"   [red]•[/red] {f}")
         console.print("")
 
-    console.print(f"[red]❌ Push blocked: Please resolve conflicts first[/red]")
+    console.print("[red]❌ Push blocked: Please resolve conflicts first[/red]")
     console.print("")
     console.print("[bold]💡 Options:[/bold]")
-    console.print(f"   1. Resolve conflicts manually:")
+    console.print("   1. Resolve conflicts manually:")
     console.print(f"      [dim]git pull origin {branch}[/dim]")
-    console.print(f"      [dim]# Fix conflicts in files[/dim]")
-    console.print(f"      [dim]git add . && git commit[/dim]")
-    console.print(f"   2. Skip sync check: [cyan]rg push --no-pull[/cyan]")
-    console.print(f"   3. Force push (caution!): [cyan]rg push --force[/cyan]")
+    console.print("      [dim]# Fix conflicts in files[/dim]")
+    console.print("      [dim]git add . && git commit[/dim]")
+    console.print("   2. Skip sync check: [cyan]rg push --no-pull[/cyan]")
+    console.print("   3. Force push (caution!): [cyan]rg push --force[/cyan]")

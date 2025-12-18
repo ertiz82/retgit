@@ -233,9 +233,12 @@ def _merge_results(ai_result: dict, linter_issues: List[Dict], linter_name: str)
     }
 
 
-# Default prompt template path
-DEFAULT_PROMPT_PATH = Path(__file__).parent.parent / "templates" / "quality_prompt.md"
-USER_PROMPT_PATH = RETGIT_DIR / "templates" / "quality_prompt.md"
+# Prompt paths (new structure: prompts/quality/default.md)
+DEFAULT_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "quality" / "default.md"
+USER_PROMPT_PATH = RETGIT_DIR / "prompts" / "quality" / "default.md"
+# Legacy paths for backward compatibility
+LEGACY_DEFAULT_PROMPT_PATH = Path(__file__).parent.parent / "templates" / "quality_prompt.md"
+LEGACY_USER_PROMPT_PATH = RETGIT_DIR / "templates" / "quality_prompt.md"
 
 
 def _get_code_quality():
@@ -701,6 +704,7 @@ def scan_cmd(
     severity: Optional[str] = typer.Option(None, "--severity", "-s", help="Minimum severity: ERROR, WARNING, INFO"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save report to file"),
     format: str = typer.Option("text", "--format", "-f", help="Output format: text, json"),
+    patterns: bool = typer.Option(False, "--patterns", "-p", help="Analyze code and suggest design patterns (AI)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show verbose output")
 ):
     """
@@ -714,6 +718,7 @@ def scan_cmd(
         rg quality scan src/               # Scan specific directory
         rg quality scan -c p/security-audit  # Use security rules
         rg quality scan -o report.json -f json  # Export as JSON
+        rg quality scan --patterns         # Get design pattern suggestions
     """
     from ..core.semgrep import (
         is_semgrep_installed,
@@ -848,10 +853,181 @@ def scan_cmd(
             Path(output).write_text(report)
             console.print(f"\n[green]Report saved to {output}[/green]")
 
+    # Run design pattern analysis if requested
+    if patterns:
+        console.print()
+        _analyze_design_patterns(path, scanned_files, verbose)
+
     # Exit with error if critical issues found
     if counts["critical"] > 0:
         console.print(f"\n[red]Found {counts['critical']} critical issue(s)![/red]")
         raise typer.Exit(1)
+
+
+def _analyze_design_patterns(path: str, files: List[str], verbose: bool = False):
+    """Analyze code structure and suggest design patterns using AI."""
+    from ..core.config import ConfigManager
+    from ..core.llm import LLMClient
+
+    console.print("[bold cyan]Analyzing code structure for design patterns...[/bold cyan]")
+
+    # Get code summary - read key files
+    code_summary = _build_code_summary(path, files, max_files=10)
+
+    if not code_summary:
+        console.print("[yellow]No suitable files found for pattern analysis.[/yellow]")
+        return
+
+    # Build prompt for design pattern analysis
+    prompt = _build_pattern_prompt(code_summary)
+
+    try:
+        config = ConfigManager()
+        llm_config = config.load().get("llm", {})
+
+        if not llm_config:
+            console.print("[yellow]No LLM configured. Run: rg init[/yellow]")
+            return
+
+        if verbose:
+            console.print("[dim]Running AI analysis...[/dim]")
+
+        client = LLMClient(llm_config)
+        response = client.chat(prompt)
+
+        # Parse and display results
+        _display_pattern_suggestions(response)
+
+    except Exception as e:
+        console.print(f"[yellow]Pattern analysis failed: {e}[/yellow]")
+
+
+def _build_code_summary(path: str, files: List[str], max_files: int = 10) -> str:
+    """Build a summary of code structure for pattern analysis."""
+    summary_parts = []
+
+    # Filter to code files only
+    code_extensions = {".py", ".js", ".ts", ".java", ".go", ".php", ".rb", ".cs", ".kt", ".swift", ".rs"}
+    code_files = [f for f in files if Path(f).suffix.lower() in code_extensions]
+
+    if not code_files:
+        # Try to find files in path
+        path_obj = Path(path)
+        if path_obj.is_dir():
+            for ext in code_extensions:
+                code_files.extend([str(f) for f in path_obj.rglob(f"*{ext}")][:max_files])
+
+    # Limit files
+    code_files = code_files[:max_files]
+
+    for file_path in code_files:
+        try:
+            content = Path(file_path).read_text(errors="ignore")
+            # Truncate large files
+            if len(content) > 3000:
+                content = content[:3000] + "\n... (truncated)"
+
+            summary_parts.append(f"=== {file_path} ===\n{content}\n")
+        except Exception:
+            continue
+
+    return "\n".join(summary_parts)
+
+
+def _build_pattern_prompt(code_summary: str) -> str:
+    """Build prompt for design pattern analysis."""
+    return f"""Analyze this codebase and suggest applicable design patterns.
+
+## Code Summary
+{code_summary}
+
+## Instructions
+1. Identify current patterns being used (if any)
+2. Suggest design patterns that could improve the code
+3. For EACH suggestion, provide:
+   - Exact file paths that need changes
+   - Current code snippet (copy from the code above)
+   - Refactored code with the pattern applied
+4. Focus on practical, actionable suggestions
+
+## Design Patterns to Consider
+- Creational: Factory, Builder, Singleton, Prototype
+- Structural: Adapter, Facade, Decorator, Proxy, Composite
+- Behavioral: Strategy, Observer, Command, State, Template Method
+- Other: Repository, Service Layer, Dependency Injection, Event Sourcing
+
+## Response Format (MUST follow this structure)
+
+### CURRENT PATTERNS
+List patterns already in use:
+- **[Pattern Name]** in `[file_path]`: [Brief explanation]
+
+### SUGGESTED IMPROVEMENTS
+
+#### 1. [Pattern Name]
+
+**Problem:** [What code smell or issue this solves]
+
+**Affected Files:**
+- `path/to/file1.py`
+- `path/to/file2.py`
+
+**Current Code:**
+```[language]
+# From: path/to/file.py (lines X-Y)
+[paste the actual problematic code from the codebase]
+```
+
+**Refactored Code:**
+```[language]
+# Improved version with [Pattern Name]
+[show the complete refactored code]
+```
+
+**Benefits:**
+- [Benefit 1]
+- [Benefit 2]
+
+---
+
+#### 2. [Next Pattern...]
+[Same structure as above]
+
+### SOLID VIOLATIONS
+
+#### [S/O/L/I/D] - [Principle Name]
+**File:** `path/to/file.py`
+**Line:** [line number if applicable]
+**Issue:** [Description]
+
+**Current Code:**
+```[language]
+[problematic code]
+```
+
+**Fixed Code:**
+```[language]
+[corrected code]
+```
+
+---
+
+IMPORTANT:
+- Always include REAL code from the provided codebase
+- Show complete, working code examples (not pseudocode)
+- Be specific about file paths and line numbers
+"""
+
+
+def _display_pattern_suggestions(response: str):
+    """Display pattern analysis results."""
+    console.print()
+    console.print(Panel(
+        response,
+        title="[bold]Design Pattern Analysis[/bold]",
+        border_style="green",
+        padding=(1, 2)
+    ))
 
 
 @quality_app.command("status")

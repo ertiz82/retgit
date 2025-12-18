@@ -6,50 +6,44 @@ from pathlib import Path
 from ..core.config import ConfigManager, RETGIT_DIR
 from ..core.llm import load_providers, check_provider_available
 from ..plugins.registry import detect_project_type, get_builtin_plugins
-from ..integrations.registry import get_builtin_integrations
 
 # Package source directories
 PACKAGE_DIR = Path(__file__).parent.parent
 BUILTIN_PROMPTS_DIR = PACKAGE_DIR / "prompts"
-BUILTIN_TEMPLATES_DIR = PACKAGE_DIR / "templates"
+
+# New prompt structure: prompts/{category}/{name}.md
+# Only copy commit prompts, quality prompts are internal
+PROMPT_CATEGORIES = ["commit"]
 
 
 def get_builtin_prompts() -> list:
-    """List builtin prompts from package"""
-    if not BUILTIN_PROMPTS_DIR.exists():
+    """List builtin prompts from package (commit prompts only)"""
+    commit_dir = BUILTIN_PROMPTS_DIR / "commit"
+    if not commit_dir.exists():
         return []
-    return [f.stem for f in BUILTIN_PROMPTS_DIR.glob("*.md")]
+    return [f.stem for f in commit_dir.glob("*.md")]
 
 
 def copy_prompts() -> int:
-    """Copy all builtin prompts to .redgit/prompts/"""
+    """Copy all builtin prompts to .redgit/prompts/ preserving category structure"""
     if not BUILTIN_PROMPTS_DIR.exists():
         return 0
 
-    dest_dir = RETGIT_DIR / "prompts"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
     count = 0
-    for src in BUILTIN_PROMPTS_DIR.glob("*.md"):
-        dest = dest_dir / src.name
-        shutil.copy2(src, dest)
-        count += 1
+    for category in PROMPT_CATEGORIES:
+        src_dir = BUILTIN_PROMPTS_DIR / category
+        if not src_dir.exists():
+            continue
+
+        dest_dir = RETGIT_DIR / "prompts" / category
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        for src in src_dir.glob("*.md"):
+            dest = dest_dir / src.name
+            shutil.copy2(src, dest)
+            count += 1
 
     return count
-
-
-def copy_quality_template() -> bool:
-    """Copy quality prompt template to .redgit/templates/"""
-    src = BUILTIN_TEMPLATES_DIR / "quality_prompt.md"
-    if not src.exists():
-        return False
-
-    dest_dir = RETGIT_DIR / "templates"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
-    dest = dest_dir / "quality_prompt.md"
-    shutil.copy2(src, dest)
-    return True
 
 
 def select_llm_provider() -> tuple:
@@ -285,36 +279,6 @@ def select_quality_settings() -> dict:
     }
 
 
-def select_integrations() -> list:
-    """Interactive integration selection. Returns list of selected integration names."""
-    available_integrations = get_builtin_integrations()
-
-    if not available_integrations:
-        return []
-
-    typer.echo("\n🔌 Integrations:")
-    typer.echo(f"   Available: {', '.join(available_integrations)}")
-
-    if not typer.confirm("   Install integrations?", default=False):
-        return []
-
-    # Show available integrations
-    typer.echo("\n   Enter integration names separated by comma:")
-    selection = typer.prompt("   Integrations", default="")
-
-    if not selection.strip():
-        return []
-
-    # Parse comma-separated list
-    selected = []
-    for name in selection.split(","):
-        name = name.strip().lower()
-        if name in available_integrations:
-            selected.append(name)
-        elif name:
-            typer.echo(f"   ⚠️  Unknown integration: {name}")
-
-    return selected
 
 
 def init_cmd():
@@ -346,17 +310,17 @@ def init_cmd():
     # Plugin selection (optional, single line)
     selected_plugins = select_plugins()
     config["plugins"] = {"enabled": selected_plugins}
-
-    # Integration selection (optional, single line)
-    selected_integrations = select_integrations()
     config["integrations"] = {}
 
     # Code quality settings
     quality_config = select_quality_settings()
     config["quality"] = quality_config
 
-    # Semgrep settings
-    semgrep_config = select_semgrep_settings()
+    # Semgrep settings (only ask if quality is enabled)
+    if quality_config.get("enabled"):
+        semgrep_config = select_semgrep_settings()
+    else:
+        semgrep_config = {"enabled": False}
     config["semgrep"] = semgrep_config
 
     # Editor config
@@ -367,15 +331,10 @@ def init_cmd():
 
     typer.echo("\n📁 Setting up:")
 
-    # Copy prompts
+    # Copy prompts (commit and quality categories)
     prompt_count = copy_prompts()
     if prompt_count > 0:
         typer.echo(f"   ✓ {prompt_count} prompt templates copied")
-
-    # Copy quality template if enabled
-    if quality_config.get("enabled"):
-        if copy_quality_template():
-            typer.echo("   ✓ Quality prompt template copied")
 
     # Save config
     ConfigManager().save(config)
@@ -397,23 +356,14 @@ def init_cmd():
         configs_str = ", ".join(semgrep_config.get("configs", ["auto"]))
         typer.echo(f"   🔬 Semgrep: enabled ({configs_str})")
 
-    # Install selected integrations
-    if selected_integrations:
-        typer.echo("\n🔌 Installing integrations...")
-        from .integration import install_cmd as integration_install
-
-        for integ_name in selected_integrations:
-            try:
-                integration_install(integ_name)
-            except SystemExit:
-                pass  # Continue with other integrations
-
     typer.echo("\n💡 Usage:")
-    typer.echo("   redgit propose              # Auto-detect plugin prompt")
-    typer.echo("   redgit propose -p laravel   # Use Laravel plugin prompt")
-    typer.echo("   redgit propose -p minimal   # Use minimal prompt")
+    typer.echo("   rg propose    # Generate commit messages")
+    typer.echo("   rg push       # Push with task management integration")
+    typer.echo("   rg scout      # AI-powered project analysis")
+
+    typer.echo("\n📦 Extend with plugins & integrations:")
+    typer.echo("   rg install jira              # Task management")
+    typer.echo("   rg install slack             # Notifications")
+    typer.echo("   rg install plugin:laravel    # Framework plugin")
     typer.echo("")
-    typer.echo("💡 Manage plugins/integrations:")
-    typer.echo("   redgit plugin list")
-    typer.echo("   redgit plugin add <name>")
-    typer.echo("   redgit integration install <name>")
+    typer.echo("   Browse all: https://github.com/ertiz82/redgit-tap")

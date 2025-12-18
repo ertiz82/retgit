@@ -560,3 +560,255 @@ def semgrep_cmd(
         console.print("\n[bold cyan]Semgrep Settings Updated[/bold cyan]\n")
         for change in changes:
             console.print(f"   ✓ {change}")
+
+
+@config_app.command("export-prompt")
+def export_prompt_cmd(
+    name: str = typer.Argument("default", help="Prompt name to export (e.g., default, jira:issue_title, quality)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output filename (defaults to <name>.md)")
+):
+    """Export a built-in prompt template to .redgit/prompts/ or .redgit/templates/ for customization.
+
+    The response format (JSON schema) is automatically appended by RedGit and cannot be modified.
+    You can only customize the instructions and guidelines part of the prompt.
+
+    Examples:
+        rg config export-prompt default              # Export default.md (for rg propose)
+        rg config export-prompt laravel              # Export laravel plugin prompt
+        rg config export-prompt jira:issue_title     # Export Jira issue title prompt
+        rg config export-prompt jira:issue_description  # Export Jira description prompt
+        rg config export-prompt quality              # Export quality analysis prompt
+    """
+    from pathlib import Path
+    from ..core.prompt import BUILTIN_PROMPTS_DIR
+    from ..core.config import RETGIT_DIR
+    from ..plugins.registry import get_plugin_by_name, get_builtin_plugins
+    from ..integrations.registry import get_all_integrations
+
+    # Integration/template prompts
+    TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+    # Try to get prompt content
+    content = None
+    prompt_type = "propose"  # propose, integration, or plugin
+    variables = []
+
+    # Parse name for integration:prompt_name format (e.g., jira:issue_title)
+    integration_name = None
+    prompt_name = name
+    if ":" in name:
+        integration_name, prompt_name = name.split(":", 1)
+
+    # Determine output filename
+    if output:
+        output_name = output if output.endswith(".md") else f"{output}.md"
+    elif integration_name:
+        output_name = f"{integration_name}_{prompt_name}.md"
+    else:
+        output_name = f"{name}.md"
+
+    # 1. Check if it's an integration prompt (jira:issue_title or just jira)
+    if integration_name or name in ["jira"]:
+        integrations = get_all_integrations()
+        target_integration = integration_name or name
+
+        for int_cls in integrations.values():
+            if int_cls.name == target_integration:
+                prompts = int_cls.get_prompts()
+                if prompts:
+                    # If specific prompt requested
+                    if prompt_name and prompt_name != target_integration and prompt_name in prompts:
+                        prompt_def = prompts[prompt_name]
+                        content = prompt_def.get("content", "")
+                        variables = prompt_def.get("variables", [])
+                        prompt_type = "integration"
+                        console.print(f"   [dim]Exporting {target_integration}:{prompt_name} prompt[/dim]")
+                        break
+                    # If just integration name, list available prompts
+                    elif prompt_name == target_integration or not integration_name:
+                        console.print(f"\n[cyan]Available prompts for {target_integration}:[/cyan]")
+                        for pname, pdef in prompts.items():
+                            console.print(f"   • {target_integration}:{pname} - {pdef.get('description', '')}")
+                        console.print(f"\n[dim]Export with: rg config export-prompt {target_integration}:<prompt_name>[/dim]")
+                        return
+                break
+
+    # 2. Check legacy templates (quality_prompt.md, etc.)
+    if not content:
+        legacy_templates = {
+            "quality": "quality_prompt.md",
+            "quality_prompt": "quality_prompt.md",
+        }
+        if name in legacy_templates:
+            template_file = legacy_templates[name]
+            template_path = TEMPLATES_DIR / template_file
+            if template_path.exists():
+                content = template_path.read_text(encoding="utf-8")
+                prompt_type = "integration"
+                output_name = template_file
+                console.print(f"   [dim]Exporting {name} template[/dim]")
+
+    # 3. Check if it's a plugin name
+    if not content:
+        builtin_plugins = get_builtin_plugins()
+        if name in builtin_plugins:
+            plugin = get_plugin_by_name(name)
+            if plugin and hasattr(plugin, "get_prompt"):
+                content = plugin.get_prompt()
+                if content:
+                    prompt_type = "plugin"
+                    console.print(f"   [dim]Exporting plugin prompt: {name}[/dim]")
+
+    # 4. Check builtin prompts directory
+    if not content:
+        builtin_path = BUILTIN_PROMPTS_DIR / f"{name}.md"
+        if builtin_path.exists():
+            content = builtin_path.read_text(encoding="utf-8")
+            console.print(f"   [dim]Exporting builtin prompt: {name}[/dim]")
+
+    if not content:
+        console.print(f"[red]Prompt '{name}' not found.[/red]")
+        console.print("\n[dim]Available prompts:[/dim]")
+
+        # List available
+        available = []
+        if BUILTIN_PROMPTS_DIR.exists():
+            for f in BUILTIN_PROMPTS_DIR.glob("*.md"):
+                available.append(f.stem)
+        builtin_plugins = get_builtin_plugins()
+        for pname in builtin_plugins:
+            if pname not in available:
+                available.append(f"{pname} (plugin)")
+
+        # Add integration prompts
+        integrations = get_all_integrations()
+        for int_cls in integrations.values():
+            prompts = int_cls.get_prompts()
+            for pname in prompts.keys():
+                available.append(f"{int_cls.name}:{pname}")
+
+        for p in sorted(available):
+            console.print(f"   • {p}")
+        raise typer.Exit(1)
+
+    # Determine output directory based on prompt type
+    if prompt_type == "integration":
+        output_dir = RETGIT_DIR / "templates"
+    else:
+        output_dir = RETGIT_DIR / "prompts"
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / output_name
+
+    # Check if already exists
+    if output_path.exists():
+        from rich.prompt import Confirm
+        if not Confirm.ask(f"   [yellow]{output_path} already exists. Overwrite?[/yellow]", default=False):
+            console.print("   [dim]Cancelled.[/dim]")
+            return
+
+    # Build header comment
+    header_lines = [
+        "# ============================================================================",
+        "# This prompt template can be customized.",
+        "#",
+        "# IMPORTANT: The response format (JSON schema) is automatically appended",
+        "# by RedGit. You can only modify the instructions and guidelines here.",
+        "# Do NOT add your own JSON schema - it will be ignored.",
+        "#",
+    ]
+
+    if variables:
+        header_lines.append("# Variables available:")
+        for var in variables:
+            header_lines.append(f"#   {{{{{var}}}}} - Will be replaced at runtime")
+    else:
+        header_lines.append("# Variables available:")
+        header_lines.append("#   {{FILES}} - Will be replaced with the list of changed files")
+
+    header_lines.extend(["# ============================================================================", "", ""])
+    header = "\n".join(header_lines)
+
+    # Write to file
+    output_path.write_text(header + content, encoding="utf-8")
+
+    console.print(f"\n[green]✓ Exported prompt to:[/green] {output_path}")
+
+    if prompt_type == "integration":
+        console.print(f"\n[dim]This prompt is used by the {integration_name or name} integration.[/dim]")
+        console.print(f"[dim]Edit the file to customize the prompt behavior.[/dim]")
+    else:
+        console.print(f"\n[dim]To use this prompt:[/dim]")
+        console.print(f"   1. Edit {output_path}")
+        console.print(f"   2. Set in config: rg config set llm.prompt {output_name.replace('.md', '')}")
+        console.print(f"   3. Or use directly: rg propose -p {output_name.replace('.md', '')}")
+
+    console.print(f"\n[yellow]Note:[/yellow] Response format (JSON schema) is managed by RedGit and cannot be modified.")
+
+
+@config_app.command("list-prompts")
+def list_prompts_cmd():
+    """List available prompt templates."""
+    from pathlib import Path
+    from ..core.prompt import BUILTIN_PROMPTS_DIR
+    from ..core.config import RETGIT_DIR
+    from ..plugins.registry import get_builtin_plugins
+    from ..integrations.registry import get_all_integrations
+
+    # Integration/template prompts
+    TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+
+    console.print("\n[bold cyan]Available Prompts[/bold cyan]\n")
+
+    # Builtin prompts (for rg propose)
+    console.print("   [bold]Propose prompts (rg propose):[/bold]")
+    if BUILTIN_PROMPTS_DIR.exists():
+        for f in sorted(BUILTIN_PROMPTS_DIR.glob("*.md")):
+            console.print(f"   • {f.stem}")
+
+    # Plugin prompts
+    builtin_plugins = get_builtin_plugins()
+    if builtin_plugins:
+        console.print("\n   [bold]Plugin prompts:[/bold]")
+        for pname in sorted(builtin_plugins):
+            console.print(f"   • {pname}")
+
+    # Integration prompts (dynamic from integrations)
+    console.print("\n   [bold]Integration prompts:[/bold]")
+    integrations = get_all_integrations()
+    for int_cls in integrations.values():
+        prompts = int_cls.get_prompts()
+        if prompts:
+            for pname, pdef in prompts.items():
+                desc = pdef.get("description", "")
+                console.print(f"   • {int_cls.name}:{pname} [dim]- {desc}[/dim]")
+
+    # Legacy template prompts
+    if TEMPLATES_DIR.exists():
+        for f in sorted(TEMPLATES_DIR.glob("*_prompt.md")):
+            name = f.stem.replace("_prompt", "")
+            console.print(f"   • {name} [dim](template)[/dim]")
+
+    # Project prompts
+    project_prompts = RETGIT_DIR / "prompts"
+    project_templates = RETGIT_DIR / "templates"
+
+    has_custom = False
+    if project_prompts.exists():
+        custom_prompts = list(project_prompts.glob("*.md"))
+        if custom_prompts:
+            if not has_custom:
+                console.print("\n   [bold]Custom prompts (.redgit/):[/bold]")
+                has_custom = True
+            for f in sorted(custom_prompts):
+                console.print(f"   • {f.stem} [green](custom)[/green]")
+
+    if project_templates.exists():
+        custom_templates = list(project_templates.glob("*.md"))
+        if custom_templates:
+            if not has_custom:
+                console.print("\n   [bold]Custom prompts (.redgit/):[/bold]")
+            for f in sorted(custom_templates):
+                console.print(f"   • {f.stem} [green](custom template)[/green]")
+
+    console.print("\n[dim]Export a prompt for customization: rg config export-prompt <name>[/dim]")

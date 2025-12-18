@@ -38,24 +38,70 @@ def _get_integration_type_label(integration_type: IntegrationType) -> str:
     return type_labels.get(integration_type, "Unknown")
 
 
+def _get_installed_integrations() -> set:
+    """
+    Get names of integrations that are actually installed (not package builtins).
+
+    Returns integrations from:
+    - Global directory: ~/.redgit/integrations/
+    - Project directory: .redgit/integrations/
+    """
+    from ..core.config import GLOBAL_INTEGRATIONS_DIR
+
+    installed = set()
+
+    # Global integrations (tap-installed)
+    global_dir = GLOBAL_INTEGRATIONS_DIR
+    if global_dir.exists():
+        for item in global_dir.iterdir():
+            if item.is_dir() and (item / "__init__.py").exists():
+                installed.add(item.name)
+
+    # Project integrations
+    project_dir = Path(".redgit/integrations")
+    if project_dir.exists():
+        for item in project_dir.iterdir():
+            if item.is_dir() and (item / "__init__.py").exists():
+                installed.add(item.name)
+
+    return installed
+
+
 @integration_app.command("list")
-def list_cmd():
-    """List available and enabled integrations"""
-    builtin = get_builtin_integrations()
-    schemas = get_all_install_schemas()
+def list_cmd(
+    all_integrations: bool = typer.Option(False, "--all", "-a", help="Show all available integrations from taps")
+):
+    """List installed integrations"""
     config = ConfigManager().load()
     integrations_config = config.get("integrations", {})
     active_config = config.get("active", {})
 
-    # Group integrations by type
+    # Get actually installed integrations (global + project, not package builtins)
+    installed_names = _get_installed_integrations()
+
+    # Also include integrations that are enabled in config
+    for name, cfg in integrations_config.items():
+        if isinstance(cfg, dict) and cfg.get("enabled"):
+            installed_names.add(name)
+
+    if not installed_names:
+        typer.echo("\n📦 No integrations installed.\n")
+        typer.echo("  💡 Install from taps: rg install <name>")
+        typer.echo("  💡 Browse available: rg integration list --all")
+        typer.echo("")
+        return
+
+    # Group installed integrations by type
     by_type = {}
-    for name in builtin:
+    schemas = get_all_install_schemas()
+
+    for name in installed_names:
         itype = get_integration_type(name)
         if itype not in by_type:
             by_type[itype] = []
         by_type[itype].append(name)
 
-    typer.echo("\n📦 Available integrations:\n")
+    typer.echo("\n📦 Installed integrations:\n")
 
     for itype, names in by_type.items():
         type_name = _get_integration_type_name(itype)
@@ -64,9 +110,8 @@ def list_cmd():
 
         typer.echo(f"  {type_label}:")
 
-        for name in names:
+        for name in sorted(names):
             schema = schemas.get(name, {})
-            description = schema.get("description", "")
             enabled = integrations_config.get(name, {}).get("enabled", False)
             configured = _is_configured(integrations_config.get(name, {}), schema)
             is_active = (active_name == name)
@@ -76,13 +121,13 @@ def list_cmd():
                 status = "✓ active"
                 marker = "●"
             elif enabled and configured:
-                status = "✓ installed"
+                status = "✓ configured"
                 marker = "○"
             elif enabled:
                 status = "⚠ not configured"
                 marker = "○"
             else:
-                status = "not installed"
+                status = "installed"
                 marker = "○"
 
             typer.echo(f"    {marker} {name} ({status})")
@@ -90,14 +135,49 @@ def list_cmd():
         # Show active integration for this type
         if active_name:
             typer.echo(f"    └─ Active: {active_name}")
-        else:
-            typer.echo(f"    └─ Active: none (use 'rg integration use {names[0]}' to set)")
+        typer.echo("")
 
+    # Show available from taps
+    if all_integrations:
+        from ..core.tap import TapManager
+
+        tap_mgr = TapManager()
+        tap_integrations = tap_mgr.get_all_integrations(include_installed=True)
+
+        # Filter out already installed
+        available = [i for i in tap_integrations if i.name not in installed_names and i.name.replace("-", "_") not in installed_names]
+
+        if available:
+            typer.echo("📥 Available from taps:\n")
+
+            # Group by type
+            by_item_type = {}
+            for integ in available:
+                item_type = integ.item_type or "utility"
+                if item_type not in by_item_type:
+                    by_item_type[item_type] = []
+                by_item_type[item_type].append(integ)
+
+            for item_type, integs in sorted(by_item_type.items()):
+                type_label = item_type.replace("_", " ").title()
+                typer.echo(f"  {type_label}:")
+                for integ in sorted(integs, key=lambda x: x.name):
+                    tap_label = f" ({integ.tap_name})" if integ.tap_name != "official" else ""
+                    typer.echo(f"    ○ {integ.name}{tap_label}")
+                    if integ.description:
+                        typer.echo(f"      {integ.description[:60]}...")
+                typer.echo("")
+
+            typer.echo("  💡 Install: rg install <name>")
+            typer.echo("")
+    else:
+        typer.echo("  💡 Show all from taps: rg integration list --all")
         typer.echo("")
 
     typer.echo("  💡 Commands:")
-    typer.echo("     rg integration install <name>  - Install and configure")
-    typer.echo("     rg integration use <name>      - Set as active for its type")
+    typer.echo("     rg install <name>              - Install from tap")
+    typer.echo("     rg integration config <name>   - Reconfigure")
+    typer.echo("     rg integration use <name>      - Set as active")
     typer.echo("")
 
 
@@ -109,28 +189,41 @@ def _is_configured(config: dict, schema: dict) -> bool:
     fields = schema.get("fields", [])
     for field in fields:
         if field.get("required"):
-            key = field["key"]
-            if key not in config or not config[key]:
+            key = field.get("key") or field.get("name") or ""
+            if key and (key not in config or not config[key]):
                 return False
     return True
 
 
-@integration_app.command("install")
-def install_cmd(name: str):
-    """Install and configure an integration"""
-    builtin = get_builtin_integrations()
+def configure_integration(name: str):
+    """Configure an integration (called by rg install)"""
+    # Get all integrations including global (tap-installed)
+    all_integrations = get_all_integrations()
 
-    if name not in builtin:
+    # Also try with normalized name (hyphen/underscore)
+    normalized_name = name.replace("-", "_")
+
+    if name not in all_integrations and normalized_name not in all_integrations:
+        available = list(all_integrations.keys())
         typer.secho(f"❌ '{name}' integration not found.", fg=typer.colors.RED)
-        typer.echo(f"   Available: {', '.join(builtin)}")
+        typer.echo(f"   Available: {', '.join(available)}")
         raise typer.Exit(1)
+
+    # Use the correct name
+    if name not in all_integrations:
+        name = normalized_name
 
     schema = get_install_schema(name)
     if not schema:
-        typer.secho(f"❌ No install schema for '{name}'.", fg=typer.colors.RED)
-        raise typer.Exit(1)
+        # No schema, just enable
+        config = ConfigManager().load()
+        if "integrations" not in config:
+            config["integrations"] = {}
+        config["integrations"][name] = {"enabled": True}
+        ConfigManager().save(config)
+        return
 
-    typer.echo(f"\n🔌 Installing {schema.get('name', name)} integration\n")
+    typer.echo(f"🔧 Configuring {schema.get('name', name)}\n")
 
     if schema.get("description"):
         typer.echo(f"   {schema['description']}\n")
@@ -145,7 +238,8 @@ def install_cmd(name: str):
     for field in schema.get("fields", []):
         value = _prompt_field(field)
         if value is not None:
-            config_values[field["key"]] = value
+            field_key = field.get("key") or field.get("name") or ""
+            config_values[field_key] = value
 
     # Call integration's after_install hook if available
     try:
@@ -189,20 +283,34 @@ def install_cmd(name: str):
     ConfigManager().save(config)
 
     typer.echo("")
-    typer.secho(f"✅ {schema.get('name', name)} integration installed.", fg=typer.colors.GREEN)
+    typer.secho(f"✅ {schema.get('name', name)} configured.", fg=typer.colors.GREEN)
     if set_active:
         typer.secho(f"   Set as active {type_label}.", fg=typer.colors.GREEN)
     typer.echo(f"   Configuration saved to .redgit/config.yaml")
 
 
+@integration_app.command("config")
+def config_cmd(name: str):
+    """Reconfigure an installed integration"""
+    configure_integration(name)
+
+
+def _get_field_key(field: dict) -> str:
+    """Get field key from schema field (supports both 'key' and 'name')"""
+    return field.get("key") or field.get("name") or ""
+
+
 def _prompt_field(field: dict):
     """Prompt user for a field value"""
-    key = field["key"]
-    prompt_text = field.get("prompt", key)
+    key = _get_field_key(field)
+    prompt_text = field.get("prompt") or field.get("label") or key
     field_type = field.get("type", "text")
+    # Normalize type: "string" -> "text"
+    if field_type == "string":
+        field_type = "text"
     default = field.get("default")
     required = field.get("required", False)
-    help_text = field.get("help")
+    help_text = field.get("help") or field.get("description")
     env_var = field.get("env_var")
 
     # Show help text if available
@@ -369,12 +477,12 @@ def use_cmd(name: str):
 
     if not enabled or not configured:
         typer.secho(f"⚠️  '{name}' is not installed or configured.", fg=typer.colors.YELLOW)
-        if typer.confirm(f"   Install '{name}' now?", default=True):
-            install_cmd(name)
-            # Reload config after install
+        if typer.confirm(f"   Configure '{name}' now?", default=True):
+            configure_integration(name)
+            # Reload config after configuration
             config = ConfigManager().load()
         else:
-            typer.echo(f"   💡 Run 'rg integration install {name}' first")
+            typer.echo(f"   💡 Run 'rg install {name}' first")
             raise typer.Exit(1)
 
     # Set as active
