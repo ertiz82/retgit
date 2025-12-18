@@ -1,29 +1,38 @@
+"""
+Plugin registry - dynamically loads and manages plugins.
+
+Supports:
+1. Builtin plugins: redgit/plugins/{name}.py or {name}/__init__.py
+2. Global plugins: ~/.redgit/plugins/{name}/__init__.py (tap-installed)
+3. Project plugins: .redgit/plugins/{name}/__init__.py (custom per-project)
+"""
+
+import importlib
 import importlib.util
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+from ..core.config import GLOBAL_PLUGINS_DIR
+
 # Builtin plugins directory (inside package)
 BUILTIN_PLUGINS_DIR = Path(__file__).parent
 
+# Global plugins directory (tap-installed, shared across projects)
+GLOBAL_PLUGINS_PATH = GLOBAL_PLUGINS_DIR
+
+# Project-specific plugins directory (custom per-project)
+PROJECT_PLUGINS_DIR = Path(".redgit/plugins")
+
 # Available builtin plugins
-# Single file plugins: laravel.py
-# Package plugins: version/, changelog/
-BUILTIN_PLUGINS = ["laravel", "version", "changelog"]
+# Plugins are now loaded from tap (redgit-tap) via `rg install <plugin>`
+# No builtin plugins in core package
+BUILTIN_PLUGINS = []
 
 
 def detect_project_type() -> list:
     """Detect project type based on files"""
-    plugins = []
-    if Path("artisan").exists() and Path("composer.json").exists():
-        try:
-            composer = Path("composer.json").read_text().lower()
-            if "laravel/framework" in composer:
-                plugins.append("laravel")
-        except Exception:
-            pass
-    if Path("go.mod").exists():
-        plugins.append("golang")
-    return plugins
+    # Project type detection now handled by tap plugins
+    return []
 
 
 def get_builtin_plugins() -> List[str]:
@@ -39,9 +48,33 @@ def get_builtin_plugins() -> List[str]:
     return available
 
 
+def get_all_plugins() -> List[str]:
+    """
+    List all available plugins from all sources.
+
+    Returns:
+        List of plugin names from builtin, global, and project directories
+    """
+    plugins = set(get_builtin_plugins())
+
+    # Add global plugins (tap-installed)
+    if GLOBAL_PLUGINS_PATH.exists():
+        for item in GLOBAL_PLUGINS_PATH.iterdir():
+            if item.is_dir() and (item / "__init__.py").exists():
+                plugins.add(item.name)
+
+    # Add project-specific plugins
+    if PROJECT_PLUGINS_DIR.exists():
+        for item in PROJECT_PLUGINS_DIR.iterdir():
+            if item.is_dir() and (item / "__init__.py").exists():
+                plugins.add(item.name)
+
+    return list(plugins)
+
+
 def load_plugins(config: dict) -> Dict[str, Any]:
     """
-    Load enabled plugins from package.
+    Load enabled plugins from all sources.
 
     Args:
         config: plugins section from config.yaml
@@ -61,18 +94,40 @@ def load_plugins(config: dict) -> Dict[str, Any]:
 
 
 def _load_plugin(name: str) -> Optional[Any]:
-    """Load a plugin by name from builtin plugins"""
-    # Check for single file plugin (name.py)
+    """
+    Load a plugin by name from all sources.
+
+    Load order (later can override earlier):
+    1. Builtin plugins (package)
+    2. Global plugins (tap-installed, ~/.redgit/plugins/)
+    3. Project plugins (custom per-project, .redgit/plugins/)
+    """
+    plugin = None
+
+    # 1. Check builtin plugins
     builtin_path = BUILTIN_PLUGINS_DIR / f"{name}.py"
     if builtin_path.exists():
-        return _load_plugin_from_file(builtin_path, name)
+        plugin = _load_plugin_from_file(builtin_path, name)
+    else:
+        package_path = BUILTIN_PLUGINS_DIR / name / "__init__.py"
+        if package_path.exists():
+            plugin = _load_plugin_from_file(package_path, name)
 
-    # Check for package plugin (name/__init__.py)
-    package_path = BUILTIN_PLUGINS_DIR / name / "__init__.py"
-    if package_path.exists():
-        return _load_plugin_from_file(package_path, name)
+    # 2. Check global plugins (override builtin)
+    global_path = GLOBAL_PLUGINS_PATH / name / "__init__.py"
+    if global_path.exists():
+        loaded = _load_plugin_from_file(global_path, name)
+        if loaded:
+            plugin = loaded
 
-    return None
+    # 3. Check project plugins (override global)
+    project_path = PROJECT_PLUGINS_DIR / name / "__init__.py"
+    if project_path.exists():
+        loaded = _load_plugin_from_file(project_path, name)
+        if loaded:
+            plugin = loaded
+
+    return plugin
 
 
 def _load_plugin_from_file(path: Path, name: str) -> Optional[Any]:
@@ -86,6 +141,12 @@ def _load_plugin_from_file(path: Path, name: str) -> Optional[Any]:
         class_name = f"{name.capitalize()}Plugin"
         if hasattr(module, class_name):
             cls = getattr(module, class_name)
+            return cls()
+
+        # Try CamelCase (MyPluginPlugin for my_plugin)
+        camel_name = "".join(word.capitalize() for word in name.split("_")) + "Plugin"
+        if hasattr(module, camel_name):
+            cls = getattr(module, camel_name)
             return cls()
 
     except Exception:
@@ -128,19 +189,56 @@ def get_plugin_commands(name: str) -> Optional[Any]:
     Returns:
         Typer app if plugin has commands, None otherwise
     """
-    import importlib
-
-    # Try to import commands module from plugin package
+    # Try builtin first
     try:
         module_name = f"redgit.plugins.{name}.commands"
         module = importlib.import_module(module_name)
 
-        # Look for {name}_app typer instance
         app_name = f"{name}_app"
         if hasattr(module, app_name):
             return getattr(module, app_name)
     except ImportError:
         pass
+
+    # Try global plugin commands
+    global_commands_path = GLOBAL_PLUGINS_PATH / name / "commands.py"
+    if global_commands_path.exists():
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"global_plugin_commands_{name}",
+                global_commands_path
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                app_name = f"{name}_app"
+                if hasattr(module, app_name):
+                    return getattr(module, app_name)
+                if hasattr(module, "app"):
+                    return getattr(module, "app")
+        except Exception:
+            pass
+
+    # Try project plugin commands
+    project_commands_path = PROJECT_PLUGINS_DIR / name / "commands.py"
+    if project_commands_path.exists():
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"project_plugin_commands_{name}",
+                project_commands_path
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                app_name = f"{name}_app"
+                if hasattr(module, app_name):
+                    return getattr(module, app_name)
+                if hasattr(module, "app"):
+                    return getattr(module, "app")
+        except Exception:
+            pass
 
     return None
 
@@ -177,20 +275,38 @@ def get_plugin_shortcuts(name: str) -> Dict[str, Any]:
     Returns:
         Dict of shortcut_name -> command_function
     """
-    import importlib
-
     shortcuts = {}
+
+    # Try builtin
     try:
         module_name = f"redgit.plugins.{name}.commands"
         module = importlib.import_module(module_name)
 
-        # Look for functions ending with _shortcut
         for attr_name in dir(module):
             if attr_name.endswith("_shortcut"):
                 shortcut_name = attr_name.replace("_shortcut", "")
                 shortcuts[shortcut_name] = getattr(module, attr_name)
     except ImportError:
         pass
+
+    # Try global plugin
+    global_commands_path = GLOBAL_PLUGINS_PATH / name / "commands.py"
+    if global_commands_path.exists():
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"global_plugin_shortcuts_{name}",
+                global_commands_path
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                for attr_name in dir(module):
+                    if attr_name.endswith("_shortcut"):
+                        shortcut_name = attr_name.replace("_shortcut", "")
+                        shortcuts[shortcut_name] = getattr(module, attr_name)
+        except Exception:
+            pass
 
     return shortcuts
 
