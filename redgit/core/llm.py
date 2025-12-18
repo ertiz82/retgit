@@ -2,10 +2,9 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import yaml
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 # API client imports (optional)
 try:
@@ -21,7 +20,7 @@ except ImportError:
     HAS_ANTHROPIC = False
 
 try:
-    import requests
+    import requests  # noqa: F401
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
@@ -162,16 +161,28 @@ class LLMClient:
             "  - ollama: curl -fsSL https://ollama.com/install.sh | sh"
         )
 
-    def generate_groups(self, prompt: str) -> List[Dict]:
-        """Send prompt to LLM and get commit groups"""
+    def generate_groups(self, prompt: str, return_raw: bool = False):
+        """Send prompt to LLM and get commit groups
+
+        Args:
+            prompt: The prompt to send to the LLM
+            return_raw: If True, return tuple of (groups, raw_response)
+
+        Returns:
+            List[Dict] or tuple(List[Dict], str) if return_raw=True
+        """
         provider_type = self.provider_config.get("type")
 
         if provider_type == "cli":
-            return self._run_cli(prompt)
+            groups, raw = self._run_cli(prompt, return_raw=True)
         elif provider_type == "api":
-            return self._run_api(prompt)
+            groups, raw = self._run_api(prompt, return_raw=True)
         else:
             raise ValueError(f"Unknown provider type: {provider_type}")
+
+        if return_raw:
+            return groups, raw
+        return groups
 
     def chat(self, prompt: str) -> str:
         """Send prompt to LLM and get raw text response"""
@@ -258,16 +269,16 @@ class LLMClient:
         )
         return response.json()["choices"][0]["message"]["content"]
 
-    def _run_cli(self, prompt: str) -> List[Dict]:
+    def _run_cli(self, prompt: str, return_raw: bool = False):
         """Run CLI-based LLM"""
         if self.provider_name == "claude-code":
-            return self._run_claude_cli(prompt)
+            return self._run_claude_cli(prompt, return_raw)
         elif self.provider_name == "qwen-code":
-            return self._run_qwen_cli(prompt)
+            return self._run_qwen_cli(prompt, return_raw)
         else:
             raise ValueError(f"Unknown CLI provider: {self.provider_name}")
 
-    def _run_claude_cli(self, prompt: str) -> List[Dict]:
+    def _run_claude_cli(self, prompt: str, return_raw: bool = False):
         """Run Claude Code CLI"""
         env = os.environ.copy()
         env["NO_COLOR"] = "1"
@@ -283,9 +294,14 @@ class LLMClient:
         if result.returncode != 0:
             raise RuntimeError(f"Claude CLI error: {result.stderr or result.stdout}")
 
-        return self._parse_yaml(result.stdout)
+        raw_output = result.stdout
+        groups = self._parse_yaml(raw_output)
 
-    def _run_qwen_cli(self, prompt: str) -> List[Dict]:
+        if return_raw:
+            return groups, raw_output
+        return groups
+
+    def _run_qwen_cli(self, prompt: str, return_raw: bool = False):
         """Run Qwen Code CLI"""
         env = os.environ.copy()
         env["NO_COLOR"] = "1"
@@ -302,22 +318,27 @@ class LLMClient:
         if result.returncode != 0:
             raise RuntimeError(f"Qwen CLI error: {result.stderr or result.stdout}")
 
-        return self._parse_yaml(result.stdout)
+        raw_output = result.stdout
+        groups = self._parse_yaml(raw_output)
 
-    def _run_api(self, prompt: str) -> List[Dict]:
+        if return_raw:
+            return groups, raw_output
+        return groups
+
+    def _run_api(self, prompt: str, return_raw: bool = False):
         """Run API-based LLM"""
         if self.provider_name == "openai":
-            return self._run_openai(prompt)
+            return self._run_openai(prompt, return_raw)
         elif self.provider_name == "claude-api":
-            return self._run_anthropic(prompt)
+            return self._run_anthropic(prompt, return_raw)
         elif self.provider_name == "ollama":
-            return self._run_ollama(prompt)
+            return self._run_ollama(prompt, return_raw)
         elif self.provider_name == "openrouter":
-            return self._run_openrouter(prompt)
+            return self._run_openrouter(prompt, return_raw)
         else:
             raise ValueError(f"Unknown API provider: {self.provider_name}")
 
-    def _run_openai(self, prompt: str) -> List[Dict]:
+    def _run_openai(self, prompt: str, return_raw: bool = False):
         """Run OpenAI API"""
         if not HAS_OPENAI:
             raise ImportError("openai package not installed. Run: pip install openai")
@@ -334,9 +355,14 @@ class LLMClient:
             timeout=self.timeout
         )
 
-        return self._parse_yaml(response.choices[0].message.content)
+        raw_output = response.choices[0].message.content
+        groups = self._parse_yaml(raw_output)
 
-    def _run_anthropic(self, prompt: str) -> List[Dict]:
+        if return_raw:
+            return groups, raw_output
+        return groups
+
+    def _run_anthropic(self, prompt: str, return_raw: bool = False):
         """Run Anthropic Claude API"""
         if not HAS_ANTHROPIC:
             raise ImportError("anthropic package not installed. Run: pip install anthropic")
@@ -352,9 +378,14 @@ class LLMClient:
             ]
         )
 
-        return self._parse_yaml(response.content[0].text)
+        raw_output = response.content[0].text
+        groups = self._parse_yaml(raw_output)
 
-    def _run_ollama(self, prompt: str) -> List[Dict]:
+        if return_raw:
+            return groups, raw_output
+        return groups
+
+    def _run_ollama(self, prompt: str, return_raw: bool = False):
         """Run Ollama local API"""
         if not HAS_REQUESTS:
             raise ImportError("requests package not installed. Run: pip install requests")
@@ -373,9 +404,14 @@ class LLMClient:
         )
         response.raise_for_status()
 
-        return self._parse_yaml(response.json()["response"])
+        raw_output = response.json()["response"]
+        groups = self._parse_yaml(raw_output)
 
-    def _run_openrouter(self, prompt: str) -> List[Dict]:
+        if return_raw:
+            return groups, raw_output
+        return groups
+
+    def _run_openrouter(self, prompt: str, return_raw: bool = False):
         """Run OpenRouter API (OpenAI-compatible)"""
         if not HAS_OPENAI:
             raise ImportError("openai package not installed. Run: pip install openai")
@@ -394,7 +430,12 @@ class LLMClient:
             timeout=self.timeout
         )
 
-        return self._parse_yaml(response.choices[0].message.content)
+        raw_output = response.choices[0].message.content
+        groups = self._parse_yaml(raw_output)
+
+        if return_raw:
+            return groups, raw_output
+        return groups
 
     def _parse_yaml(self, output: str) -> List[Dict]:
         """Parse YAML or JSON block from LLM output"""
@@ -414,6 +455,9 @@ class LLMClient:
             # Try parsing entire output as YAML
             yaml_text = output.strip()
 
+        # Clean up common LLM output issues
+        yaml_text = self._clean_yaml_output(yaml_text)
+
         try:
             # Try JSON first (handles both JSON and YAML for simple cases)
             try:
@@ -429,3 +473,23 @@ class LLMClient:
             return []
         except Exception as e:
             raise ValueError(f"YAML parse error: {e}\n\nOutput:\n{output[:500]}")
+
+    def _clean_yaml_output(self, text: str) -> str:
+        """Clean common LLM output issues in YAML"""
+        import re
+
+        # Remove leading "yaml" or "yml" word (without ```)
+        # Handles cases like "yaml\ngroups:" or "yamlyaml\ngroups:"
+        text = re.sub(r'^(yaml|yml)+\s*\n?', '', text, flags=re.IGNORECASE)
+
+        # Remove duplicate "groups" at start (handles "groupsyaml\ngroups:")
+        text = re.sub(r'^groups(yaml|yml)?\s*\n', '', text, flags=re.IGNORECASE)
+
+        # Find and extract valid YAML starting with "groups:"
+        groups_match = re.search(r'^(groups:\s*\n)', text, re.MULTILINE)
+        if groups_match:
+            # Get everything from "groups:" onwards
+            start_pos = groups_match.start()
+            text = text[start_pos:]
+
+        return text.strip()

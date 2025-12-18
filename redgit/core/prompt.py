@@ -9,6 +9,62 @@ from ..plugins.registry import get_plugin_by_name, get_builtin_plugins
 # Builtin prompts directory (inside package)
 BUILTIN_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
+# Static prompt categories (inside package)
+PROMPT_CATEGORIES = {
+    "commit": BUILTIN_PROMPTS_DIR / "commit",
+    "quality": BUILTIN_PROMPTS_DIR / "quality",
+}
+
+# Dynamic categories that are created at runtime
+# - integrations/{name}/ : Integration-specific prompts (e.g., jira, github)
+# - plugins/{name}/ : Plugin-specific prompts (e.g., laravel)
+
+
+def get_prompt_path(category: str, name: str = "default") -> Path:
+    """
+    Get the path for a prompt file.
+
+    Supports:
+    - Static categories: commit, quality
+    - Integration prompts: integrations/{integration_name}
+    - Plugin prompts: plugins/{plugin_name}
+
+    Args:
+        category: Category path (e.g., "commit", "quality", "integrations/jira")
+        name: Prompt name (default: "default")
+
+    Returns:
+        Path to the prompt file (may not exist)
+    """
+    if not name.endswith(".md"):
+        name = f"{name}.md"
+
+    # Check if it's a static category
+    if category in PROMPT_CATEGORIES:
+        return PROMPT_CATEGORIES[category] / name
+
+    # Dynamic category (integrations/*, plugins/*)
+    return BUILTIN_PROMPTS_DIR / category / name
+
+
+def get_user_prompt_path(category: str, name: str = "default") -> Path:
+    """
+    Get the user override path for a prompt.
+
+    User prompts are stored in .redgit/prompts/{category}/{name}.md
+
+    Args:
+        category: Category path (e.g., "commit", "integrations/jira")
+        name: Prompt name
+
+    Returns:
+        Path to the user prompt file (may not exist)
+    """
+    if not name.endswith(".md"):
+        name = f"{name}.md"
+
+    return RETGIT_DIR / "prompts" / category / name
+
 
 class PromptManager:
     """
@@ -105,24 +161,214 @@ class PromptManager:
         # 4. Default
         return self._load_by_name("default")
 
-    def _load_by_name(self, name: str) -> str:
-        """Load prompt by name"""
+    def _load_by_name(self, name: str, category: str = "commit") -> str:
+        """Load prompt by name from category folder.
 
+        Args:
+            name: Prompt name (e.g., "default", "minimal")
+            category: Prompt category (e.g., "commit", "quality")
+
+        Returns:
+            Prompt content
+        """
         # If URL, fetch it
         if name.startswith("http://") or name.startswith("https://"):
             return self._fetch_url(name)
 
-        # Check project prompts folder first
-        project_path = RETGIT_DIR / "prompts" / f"{name}.md"
+        # Check project prompts folder first (.redgit/prompts/{category}/{name}.md)
+        project_path = RETGIT_DIR / "prompts" / category / f"{name}.md"
         if project_path.exists():
             return project_path.read_text(encoding="utf-8")
 
+        # Legacy: Check project prompts folder without category
+        project_legacy = RETGIT_DIR / "prompts" / f"{name}.md"
+        if project_legacy.exists():
+            return project_legacy.read_text(encoding="utf-8")
+
+        # Check builtin prompts (prompts/{category}/{name}.md)
+        category_dir = PROMPT_CATEGORIES.get(category)
+        if category_dir:
+            builtin_path = category_dir / f"{name}.md"
+            if builtin_path.exists():
+                return builtin_path.read_text(encoding="utf-8")
+
+        # Legacy: Check builtin prompts without category
+        builtin_legacy = BUILTIN_PROMPTS_DIR / f"{name}.md"
+        if builtin_legacy.exists():
+            return builtin_legacy.read_text(encoding="utf-8")
+
+        raise FileNotFoundError(f"Prompt not found: {category}/{name}")
+
+    @staticmethod
+    def load_prompt(category: str, name: str = "default") -> str:
+        """Load a prompt from a category folder.
+
+        Supports:
+        - Static categories: "commit", "quality"
+        - Integration prompts: "integrations/jira", "integrations/github"
+        - Plugin prompts: "plugins/laravel"
+
+        Args:
+            category: Prompt category (e.g., "commit", "quality", "integrations/jira")
+            name: Prompt name (e.g., "default", "minimal", "issue_title")
+
+        Returns:
+            Prompt content as string
+
+        Example:
+            PromptManager.load_prompt("quality")  # prompts/quality/default.md
+            PromptManager.load_prompt("commit", "minimal")  # prompts/commit/minimal.md
+            PromptManager.load_prompt("integrations/jira", "issue_title")  # integration prompt
+        """
+        # Ensure .md extension
+        if not name.endswith(".md"):
+            name = f"{name}.md"
+
+        # Check user override first (.redgit/prompts/{category}/{name})
+        user_path = get_user_prompt_path(category, name)
+        if user_path.exists():
+            return user_path.read_text(encoding="utf-8")
+
         # Check builtin prompts
-        builtin_path = BUILTIN_PROMPTS_DIR / f"{name}.md"
+        builtin_path = get_prompt_path(category, name)
         if builtin_path.exists():
             return builtin_path.read_text(encoding="utf-8")
 
-        raise FileNotFoundError(f"Prompt not found: {name}")
+        # For integration prompts, try to get from integration class
+        if category.startswith("integrations/"):
+            integration_name = category.split("/")[1]
+            prompt_name = name.replace(".md", "")
+            content = PromptManager._get_integration_prompt(integration_name, prompt_name)
+            if content:
+                return content
+
+        raise FileNotFoundError(f"Prompt not found: {category}/{name}")
+
+    @staticmethod
+    def _get_integration_prompt(integration_name: str, prompt_name: str) -> Optional[str]:
+        """Get prompt from integration's get_prompts() method."""
+        from ..integrations.registry import get_integration_class
+
+        integration_cls = get_integration_class(integration_name)
+        if integration_cls and hasattr(integration_cls, "get_prompts"):
+            prompts = integration_cls.get_prompts()
+            if prompt_name in prompts:
+                return prompts[prompt_name].get("content")
+        return None
+
+    @staticmethod
+    def export_prompt(category: str, name: str = "default") -> Path:
+        """Export a prompt to .redgit/prompts/{category}/{name}.md for customization.
+
+        Args:
+            category: Prompt category (e.g., "quality", "integrations/jira")
+            name: Prompt name
+
+        Returns:
+            Path to exported file
+
+        Example:
+            PromptManager.export_prompt("quality")  # exports to .redgit/prompts/quality/default.md
+            PromptManager.export_prompt("integrations/jira", "issue_title")
+        """
+        # Get the content first
+        content = PromptManager.load_prompt(category, name)
+
+        # Determine export path
+        if not name.endswith(".md"):
+            name = f"{name}.md"
+
+        export_path = RETGIT_DIR / "prompts" / category / name
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+
+        export_path.write_text(content, encoding="utf-8")
+        return export_path
+
+    @staticmethod
+    def list_all_prompts() -> Dict[str, List[Dict[str, Any]]]:
+        """List all available prompts organized by category.
+
+        Returns:
+            Dict with categories as keys and list of prompt info as values
+        """
+        result = {}
+
+        # Static categories
+        for category, category_path in PROMPT_CATEGORIES.items():
+            if category_path.exists():
+                prompts = []
+                for f in category_path.glob("*.md"):
+                    prompts.append({
+                        "name": f.stem,
+                        "path": str(f),
+                        "source": "builtin"
+                    })
+                if prompts:
+                    result[category] = prompts
+
+        # Integration prompts (from loaded integrations)
+        from ..integrations.registry import get_all_integration_classes
+
+        for name, cls in get_all_integration_classes().items():
+            if hasattr(cls, "get_prompts"):
+                prompts_dict = cls.get_prompts()
+                if prompts_dict:
+                    category = f"integrations/{name}"
+                    prompts = []
+                    for prompt_name, prompt_info in prompts_dict.items():
+                        prompts.append({
+                            "name": prompt_name,
+                            "description": prompt_info.get("description", ""),
+                            "source": "integration"
+                        })
+                    if prompts:
+                        result[category] = prompts
+
+        # User overrides
+        user_prompts_dir = RETGIT_DIR / "prompts"
+        if user_prompts_dir.exists():
+            for category_dir in user_prompts_dir.iterdir():
+                if category_dir.is_dir():
+                    category = category_dir.name
+                    # Handle nested categories (integrations/jira)
+                    if category == "integrations":
+                        for sub_dir in category_dir.iterdir():
+                            if sub_dir.is_dir():
+                                sub_category = f"integrations/{sub_dir.name}"
+                                for f in sub_dir.glob("*.md"):
+                                    if sub_category not in result:
+                                        result[sub_category] = []
+                                    # Check if already in list
+                                    existing = next(
+                                        (p for p in result[sub_category] if p["name"] == f.stem),
+                                        None
+                                    )
+                                    if existing:
+                                        existing["has_override"] = True
+                                    else:
+                                        result[sub_category].append({
+                                            "name": f.stem,
+                                            "path": str(f),
+                                            "source": "user"
+                                        })
+                    else:
+                        for f in category_dir.glob("*.md"):
+                            if category not in result:
+                                result[category] = []
+                            existing = next(
+                                (p for p in result[category] if p["name"] == f.stem),
+                                None
+                            )
+                            if existing:
+                                existing["has_override"] = True
+                            else:
+                                result[category].append({
+                                    "name": f.stem,
+                                    "path": str(f),
+                                    "source": "user"
+                                })
+
+        return result
 
     def _fetch_url(self, url: str) -> str:
         """Fetch prompt from URL"""
@@ -207,29 +453,48 @@ class PromptManager:
         issue_language: Optional[str] = None
     ) -> str:
         """Get response schema with optional issue_key and issue_title fields"""
+        # Language config for issue titles
+        lang_config = {
+            "tr": {"name": "Turkish", "example": "Kullanıcı kimlik doğrulama özelliği eklendi"},
+            "en": {"name": "English", "example": "Add user authentication feature"},
+            "de": {"name": "German", "example": "Benutzerauthentifizierungsfunktion hinzugefügt"},
+            "fr": {"name": "French", "example": "Ajout de la fonctionnalité d'authentification utilisateur"},
+            "es": {"name": "Spanish", "example": "Añadir función de autenticación de usuario"},
+            "pt": {"name": "Portuguese", "example": "Adicionar recurso de autenticação de usuário"},
+            "it": {"name": "Italian", "example": "Aggiunta funzionalità di autenticazione utente"},
+            "ru": {"name": "Russian", "example": "Добавлена функция аутентификации пользователя"},
+            "zh": {"name": "Chinese", "example": "添加用户认证功能"},
+            "ja": {"name": "Japanese", "example": "ユーザー認証機能を追加"},
+            "ko": {"name": "Korean", "example": "사용자 인증 기능 추가"},
+            "ar": {"name": "Arabic", "example": "إضافة ميزة مصادقة المستخدم"}
+        }
+
+        # If issue_language is set (task management configured), always use schema with issue_title
+        if issue_language:
+            config = lang_config.get(issue_language, {"name": issue_language, "example": "Issue title"})
+
+            if has_issues:
+                # With active issues - use schema that includes issue_key matching
+                if issue_language == "en":
+                    return RESPONSE_SCHEMA_WITH_ISSUES_AND_LANGUAGE_EN
+                else:
+                    return RESPONSE_SCHEMA_WITH_ISSUES_AND_LANGUAGE.format(
+                        issue_language=config["name"],
+                        issue_title_example=config["example"]
+                    )
+            else:
+                # No active issues - use schema that generates issue_title in language
+                if issue_language == "en":
+                    return RESPONSE_SCHEMA_WITH_ISSUE_TITLE_EN
+                else:
+                    return RESPONSE_SCHEMA_WITH_ISSUE_TITLE.format(
+                        issue_language=config["name"],
+                        issue_title_example=config["example"]
+                    )
+
+        # No task management - use basic schema
         if has_issues:
-            schema = RESPONSE_SCHEMA_WITH_ISSUES
-            if issue_language:
-                # Add language instruction for issue_title
-                lang_names = {
-                    "tr": "Turkish",
-                    "en": "English",
-                    "de": "German",
-                    "fr": "French",
-                    "es": "Spanish",
-                    "pt": "Portuguese",
-                    "it": "Italian",
-                    "ru": "Russian",
-                    "zh": "Chinese",
-                    "ja": "Japanese",
-                    "ko": "Korean",
-                    "ar": "Arabic"
-                }
-                lang_name = lang_names.get(issue_language, issue_language)
-                schema = RESPONSE_SCHEMA_WITH_ISSUES_AND_LANGUAGE.format(
-                    issue_language=lang_name
-                )
-            return schema
+            return RESPONSE_SCHEMA_WITH_ISSUES
         return RESPONSE_SCHEMA
 
     @staticmethod
@@ -294,8 +559,11 @@ Return ONLY the JSON array, no other text.
 """
 
 # Extended response schema with issue_key and issue_title (with language support)
+# For non-English languages
 RESPONSE_SCHEMA_WITH_ISSUES_AND_LANGUAGE = """
 ## Response Format
+
+⚠️ LANGUAGE REQUIREMENT: The "issue_title" field MUST be written in {issue_language}. Not English!
 
 Respond with a JSON array. Each object represents a commit group:
 
@@ -308,7 +576,7 @@ Respond with a JSON array. Each object represents a commit group:
     "commit_body": "- Add login endpoint\\n- Add JWT token validation",
     "purpose": "User authentication feature",
     "issue_key": "PROJ-123",
-    "issue_title": "Kullanıcı kimlik doğrulama özelliği eklendi"
+    "issue_title": "{issue_title_example}"
   }}
 ]
 ```
@@ -320,11 +588,12 @@ Respond with a JSON array. Each object represents a commit group:
 - **commit_body**: Detailed description with bullet points in English
 - **purpose**: Brief explanation of why these files are grouped
 - **issue_key**: Matching issue key from Active Issues list (null if no match)
-- **issue_title**: **IMPORTANT: Write this in {issue_language}!** This is the title for creating a new Jira issue. Must be in {issue_language} language. (null if issue_key is set or no issue needed)
+- **issue_title**: Write in {issue_language}! Jira issue title in {issue_language} language. (null if issue_key is set)
 
 ### Language Rules:
-- commit_title and commit_body: Always in English
-- issue_title: Always in {issue_language}
+- commit_title: English
+- commit_body: English
+- issue_title: {issue_language}
 
 ### Grouping Rules:
 1. Group files by logical change/feature
@@ -332,6 +601,122 @@ Respond with a JSON array. Each object represents a commit group:
 3. Match groups to Active Issues when the changes clearly relate to the issue
 4. If no issue matches and changes warrant a new issue, provide issue_title in {issue_language}
 5. If an existing issue matches, set issue_key and leave issue_title as null
+
+Return ONLY the JSON array, no other text.
+"""
+
+# For English language (no special warning needed)
+RESPONSE_SCHEMA_WITH_ISSUES_AND_LANGUAGE_EN = """
+## Response Format
+
+Respond with a JSON array. Each object represents a commit group:
+
+```json
+[
+  {
+    "files": ["path/to/file1.py", "path/to/file2.py"],
+    "branch": "feature/short-description",
+    "commit_title": "feat: add user authentication",
+    "commit_body": "- Add login endpoint\\n- Add JWT token validation",
+    "purpose": "User authentication feature",
+    "issue_key": "PROJ-123",
+    "issue_title": "Add user authentication feature"
+  }
+]
+```
+
+### Fields:
+- **files**: Array of file paths that belong together
+- **branch**: Suggested branch name (will be overridden if issue_key matches)
+- **commit_title**: Short commit message (follow conventional commits)
+- **commit_body**: Detailed description with bullet points
+- **purpose**: Brief explanation of why these files are grouped
+- **issue_key**: Matching issue key from Active Issues list (null if no match)
+- **issue_title**: Jira issue title for new issues (null if issue_key is set)
+
+### Grouping Rules:
+1. Group files by logical change/feature
+2. One group per distinct change
+3. Match groups to Active Issues when the changes clearly relate to the issue
+4. If no issue matches and changes warrant a new issue, provide issue_title
+5. If an existing issue matches, set issue_key and leave issue_title as null
+
+Return ONLY the JSON array, no other text.
+"""
+
+# Schema for new issue creation with language (no active issues)
+RESPONSE_SCHEMA_WITH_ISSUE_TITLE = """
+## Response Format
+
+⚠️ LANGUAGE REQUIREMENT: The "issue_title" field MUST be written in {issue_language}. Not English!
+
+Respond with a JSON array. Each object represents a commit group:
+
+```json
+[
+  {{
+    "files": ["path/to/file1.py", "path/to/file2.py"],
+    "branch": "feature/short-description",
+    "commit_title": "feat: add user authentication",
+    "commit_body": "- Add login endpoint\\n- Add JWT token validation",
+    "purpose": "User authentication feature",
+    "issue_title": "{issue_title_example}"
+  }}
+]
+```
+
+### Fields:
+- **files**: Array of file paths that belong together
+- **branch**: Suggested branch name
+- **commit_title**: Short commit message in English (follow conventional commits)
+- **commit_body**: Detailed description with bullet points in English
+- **purpose**: Brief explanation of why these files are grouped
+- **issue_title**: REQUIRED! Write in {issue_language}! Jira issue title describing this change in {issue_language} language.
+
+### Language Rules:
+- commit_title: English
+- commit_body: English
+- issue_title: {issue_language} (REQUIRED for each group)
+
+### Grouping Rules:
+1. Group files by logical change/feature
+2. One group per distinct change
+3. Each group MUST have an issue_title in {issue_language}
+
+Return ONLY the JSON array, no other text.
+"""
+
+# Schema for new issue creation in English (no active issues)
+RESPONSE_SCHEMA_WITH_ISSUE_TITLE_EN = """
+## Response Format
+
+Respond with a JSON array. Each object represents a commit group:
+
+```json
+[
+  {
+    "files": ["path/to/file1.py", "path/to/file2.py"],
+    "branch": "feature/short-description",
+    "commit_title": "feat: add user authentication",
+    "commit_body": "- Add login endpoint\\n- Add JWT token validation",
+    "purpose": "User authentication feature",
+    "issue_title": "Add user authentication feature"
+  }
+]
+```
+
+### Fields:
+- **files**: Array of file paths that belong together
+- **branch**: Suggested branch name
+- **commit_title**: Short commit message (follow conventional commits)
+- **commit_body**: Detailed description with bullet points
+- **purpose**: Brief explanation of why these files are grouped
+- **issue_title**: REQUIRED! Jira issue title describing this change
+
+### Grouping Rules:
+1. Group files by logical change/feature
+2. One group per distinct change
+3. Each group MUST have an issue_title
 
 Return ONLY the JSON array, no other text.
 """
