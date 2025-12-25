@@ -8,6 +8,7 @@ from redgit.splash import splash
 from redgit.commands.init import init_cmd
 from redgit.commands.propose import propose_cmd
 from redgit.commands.push import push_cmd
+from redgit.commands.daily import daily_cmd
 from redgit.commands.integration import integration_app
 from redgit.commands.plugin import plugin_app
 from redgit.commands.tap import tap_app, install_cmd as tap_install_cmd, uninstall_cmd as tap_uninstall_cmd
@@ -48,6 +49,7 @@ def main_callback(
 app.command("init")(init_cmd)
 app.command("propose")(propose_cmd)
 app.command("push")(push_cmd)
+app.command("daily")(daily_cmd)
 app.command("install")(tap_install_cmd)
 app.command("uninstall")(tap_uninstall_cmd)
 app.add_typer(integration_app, name="integration")

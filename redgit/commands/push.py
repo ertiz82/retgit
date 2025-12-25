@@ -106,9 +106,12 @@ def push_cmd(
             return
 
         # Push branches and optionally create PRs
+        # In subtask mode, pass subtask_issues for completion instead of branch issues
+        subtask_issues = session.get("subtask_issues", [])
         _push_merge_request_strategy(
             branches, gitops, task_mgmt, code_hosting,
-            base_branch, create_pr, complete, config, no_pull, force
+            base_branch, create_pr, complete, config, no_pull, force,
+            subtask_issues=subtask_issues
         )
     else:
         # local-merge strategy: branches are already merged during propose
@@ -136,9 +139,17 @@ def push_cmd(
         _push_current_branch(gitops, config, complete=False, create_pr=create_pr, issue_key=issue, push_tags=tags, no_pull=no_pull, force=force)
 
         # Complete issues from session
-        if complete and task_mgmt and task_mgmt.enabled and issues:
-            console.print("\n[bold cyan]Completing issues...[/bold cyan]")
-            _complete_issues(issues, task_mgmt)
+        # In subtask mode, only complete subtask issues (not parent task)
+        subtask_issues = session.get("subtask_issues", [])
+        if complete and task_mgmt and task_mgmt.enabled:
+            if subtask_issues:
+                # Subtask mode: only transition subtasks, not parent
+                console.print("\n[bold cyan]Completing subtask issues...[/bold cyan]")
+                _complete_issues(subtask_issues, task_mgmt)
+            elif issues:
+                # Standard mode: complete all issues
+                console.print("\n[bold cyan]Completing issues...[/bold cyan]")
+                _complete_issues(issues, task_mgmt)
 
     # Clear session
     if Confirm.ask("\nClear session?", default=True):
@@ -158,9 +169,16 @@ def _push_merge_request_strategy(
     complete: bool,
     config: dict = None,
     no_pull: bool = False,
-    force: bool = False
+    force: bool = False,
+    subtask_issues: List[str] = None
 ):
-    """Push branches to remote and optionally create PRs."""
+    """Push branches to remote and optionally create PRs.
+
+    Args:
+        subtask_issues: If provided (subtask mode), complete these issues instead of
+                       branch issues. This ensures only subtasks are transitioned,
+                       not the parent task.
+    """
 
     console.print("\n[bold cyan]Pushing branches...[/bold cyan]")
 
@@ -232,12 +250,20 @@ def _push_merge_request_strategy(
         _send_push_notification(config, f"{len(pushed_branches)} branches", pushed_issues if pushed_issues else None)
 
     # Complete issues
-    if complete and task_mgmt and task_mgmt.enabled and pushed_issues:
-        console.print("\n[bold cyan]Completing issues...[/bold cyan]")
-        _complete_issues(pushed_issues, task_mgmt)
-        # Send issue completion notification
-        if config:
-            _send_issue_completion_notification(config, pushed_issues)
+    # In subtask mode, complete subtask_issues instead of pushed branch issues
+    if complete and task_mgmt and task_mgmt.enabled:
+        if subtask_issues and pushed_branches:
+            # Subtask mode: complete subtask issues (not parent task)
+            console.print("\n[bold cyan]Completing subtask issues...[/bold cyan]")
+            _complete_issues(subtask_issues, task_mgmt)
+            if config:
+                _send_issue_completion_notification(config, subtask_issues)
+        elif pushed_issues:
+            # Standard mode: complete branch issues
+            console.print("\n[bold cyan]Completing issues...[/bold cyan]")
+            _complete_issues(pushed_issues, task_mgmt)
+            if config:
+                _send_issue_completion_notification(config, pushed_issues)
 
 
 def _push_local_merge_strategy(
@@ -316,12 +342,30 @@ def _complete_issues(issues: List[str], task_mgmt):
 
 
 def _complete_issues_auto(issues: List[str], task_mgmt):
-    """Auto-transition issues using status mapping."""
+    """Auto-transition issues using status mapping.
+
+    If configured statuses are not available, asks user to select from
+    available transitions and saves the selection to config for future use.
+    """
+    from rich.prompt import Prompt
+
+    # Track if we already prompted and saved a new status
+    saved_status_for_all = None
+
     for issue_key in issues:
         try:
             # Get current status before transition
             issue = task_mgmt.get_issue(issue_key)
             old_status = issue.status if issue else "Unknown"
+
+            # If we already found a working status for previous issue, try it first
+            if saved_status_for_all:
+                transitions = task_mgmt.get_available_transitions(issue_key)
+                matching = [t for t in transitions if t["to"].lower() == saved_status_for_all.lower()]
+                if matching:
+                    if task_mgmt.transition_issue_by_id(issue_key, matching[0]["id"]):
+                        console.print(f"[green]  ✓ {issue_key}: {old_status} → {saved_status_for_all}[/green]")
+                        continue
 
             # Use "after_push" status - will try all mapped statuses, then auto-advance
             if task_mgmt.transition_issue(issue_key, "after_push"):
@@ -330,9 +374,89 @@ def _complete_issues_auto(issues: List[str], task_mgmt):
                 new_status = issue.status if issue else "Done"
                 console.print(f"[green]  ✓ {issue_key}: {old_status} → {new_status}[/green]")
             else:
-                console.print(f"[yellow]  ⚠️  {issue_key} could not be transitioned (no available transitions)[/yellow]")
+                # Transition failed - ask user to select from available transitions
+                transitions = task_mgmt.get_available_transitions(issue_key)
+
+                if not transitions:
+                    console.print(f"[yellow]  ⚠️  {issue_key}: No available transitions[/yellow]")
+                    continue
+
+                console.print(f"\n[yellow]  ⚠️  {issue_key}: Configured status not available[/yellow]")
+                console.print(f"  [dim]Current: {old_status}[/dim]")
+                console.print("  [bold]Available transitions:[/bold]")
+
+                for i, t in enumerate(transitions, 1):
+                    console.print(f"    [{i}] {t['to']}")
+                console.print(f"    [0] Skip (don't transition)")
+
+                choice = Prompt.ask(
+                    "  Select transition",
+                    default="0"
+                )
+
+                if choice == "0":
+                    console.print(f"[dim]  - {issue_key}: Skipped[/dim]")
+                    continue
+
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(transitions):
+                        selected = transitions[idx]
+                        if task_mgmt.transition_issue_by_id(issue_key, selected["id"]):
+                            console.print(f"[green]  ✓ {issue_key}: {old_status} → {selected['to']}[/green]")
+
+                            # Offer to save to config
+                            if Confirm.ask(f"  Add '{selected['to']}' to after_push config?", default=True):
+                                _save_status_to_config(selected['to'])
+                                saved_status_for_all = selected['to']
+                                console.print(f"[dim]  Saved '{selected['to']}' to config[/dim]")
+                        else:
+                            console.print(f"[red]  ❌ {issue_key}: Transition failed[/red]")
+                    else:
+                        console.print(f"[yellow]  Invalid choice, skipping {issue_key}[/yellow]")
+                except ValueError:
+                    console.print(f"[yellow]  Invalid choice, skipping {issue_key}[/yellow]")
+
         except Exception as e:
             console.print(f"[red]  ❌ {issue_key} error: {e}[/red]")
+
+
+def _save_status_to_config(status_name: str):
+    """Save a new status to after_push config."""
+    import yaml
+    from pathlib import Path
+
+    config_path = Path(".redgit/config.yaml")
+    if not config_path.exists():
+        return
+
+    try:
+        config = yaml.safe_load(config_path.read_text()) or {}
+
+        # Ensure structure exists
+        if "integrations" not in config:
+            config["integrations"] = {}
+        if "jira" not in config["integrations"]:
+            config["integrations"]["jira"] = {}
+        if "statuses" not in config["integrations"]["jira"]:
+            config["integrations"]["jira"]["statuses"] = {}
+        if "after_push" not in config["integrations"]["jira"]["statuses"]:
+            config["integrations"]["jira"]["statuses"]["after_push"] = []
+
+        # Add new status if not already present
+        after_push = config["integrations"]["jira"]["statuses"]["after_push"]
+        if isinstance(after_push, list):
+            if status_name not in after_push:
+                after_push.append(status_name)
+        elif isinstance(after_push, str):
+            if after_push != status_name:
+                config["integrations"]["jira"]["statuses"]["after_push"] = [after_push, status_name]
+
+        # Write back
+        config_path.write_text(yaml.dump(config, allow_unicode=True, sort_keys=False))
+
+    except Exception:
+        pass
 
 
 def _complete_issues_interactive(issues: List[str], task_mgmt):

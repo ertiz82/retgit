@@ -430,6 +430,97 @@ def add_cmd(name: str):
     typer.echo(f"   ⚠️  Run 'redgit integration install {name}' to configure")
 
 
+@integration_app.command("update")
+def update_cmd(
+    name: str = typer.Argument(None, help="Integration name to update (or omit to update all)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force reinstall even if up to date")
+):
+    """Update installed integrations from taps"""
+    from ..core.tap import TapManager, find_item_in_taps
+    from .tap import install_from_tap
+
+    tap_mgr = TapManager()
+    config = ConfigManager().load()
+    integrations_config = config.get("integrations", {})
+
+    # Get installed integrations
+    installed_names = _get_installed_integrations()
+
+    # Also include integrations enabled in config
+    for int_name, cfg in integrations_config.items():
+        if isinstance(cfg, dict) and cfg.get("enabled"):
+            installed_names.add(int_name)
+
+    if not installed_names:
+        typer.echo("\n📦 No integrations installed.\n")
+        typer.echo("  💡 Install from taps: rg install <name>")
+        return
+
+    # Determine which integrations to update
+    if name:
+        # Update specific integration
+        # Normalize name
+        normalized_name = name.replace("-", "_")
+        if name not in installed_names and normalized_name not in installed_names:
+            typer.secho(f"❌ '{name}' is not installed.", fg=typer.colors.RED)
+            typer.echo(f"   Installed: {', '.join(sorted(installed_names))}")
+            raise typer.Exit(1)
+
+        target_name = name if name in installed_names else normalized_name
+        to_update = [target_name]
+    else:
+        # Update all integrations
+        to_update = sorted(installed_names)
+
+    typer.echo(f"\n🔄 Updating {len(to_update)} integration(s)...\n")
+
+    updated = 0
+    failed = 0
+    skipped = 0
+
+    for int_name in to_update:
+        typer.echo(f"   {int_name}...", nl=False)
+
+        try:
+            # Find integration in taps
+            result = find_item_in_taps(int_name, "integration")
+
+            if not result:
+                # Try with hyphen variant
+                result = find_item_in_taps(int_name.replace("_", "-"), "integration")
+
+            if not result:
+                # Not from a tap, might be local custom integration
+                typer.secho(" skipped (local/custom)", fg=typer.colors.YELLOW)
+                skipped += 1
+                continue
+
+            # Update from tap using install_from_tap with force=True
+            success = install_from_tap(int_name, force=True, no_configure=True)
+
+            if success:
+                typer.secho(" ✓ updated", fg=typer.colors.GREEN)
+                updated += 1
+            else:
+                typer.secho(" ✗ failed", fg=typer.colors.RED)
+                failed += 1
+
+        except Exception as e:
+            typer.secho(f" ✗ failed: {e}", fg=typer.colors.RED)
+            failed += 1
+
+    # Summary
+    typer.echo("")
+    if updated > 0:
+        typer.secho(f"✅ Updated {updated} integration(s)", fg=typer.colors.GREEN)
+    if skipped > 0:
+        typer.echo(f"   Skipped: {skipped}")
+    if failed > 0:
+        typer.secho(f"   Failed: {failed}", fg=typer.colors.RED)
+
+    typer.echo("")
+
+
 @integration_app.command("remove")
 def remove_cmd(name: str):
     """Disable an integration"""
