@@ -5,6 +5,50 @@
 
 **Release Date:** 2025-12-25
 **Previous Version:** v1.2.0
+**Total Commits:** 11
+
+---
+
+## Commit Details
+
+### ✨ Features (3)
+
+- **plugins:** enhance plugin registry and CLI integration (`2d107cb`)
+- **cli:** enhance CLI commands and integration (`4f92300`)
+- **daily:** add daily workflow functionality (`5f5e70d`)
+
+### ♻️ Refactoring (2)
+
+- **integration:** update base integration functionality (`815a71b`)
+- **core:** update core configuration and git operations (`17064e0`)
+
+### 📚 Documentation (4)
+
+- update README and refresh logo (`2095217`)
+- update README and logo (`f854118`)
+- update main changelog (`2180564`)
+- add changelog files for v1.2.0 and v1.2.1 (`7ed9977`)
+
+### 🔧 Chores (2)
+
+- **release:** prepare v1.2.2 with changelog and dependency updates (`3210df5`)
+- update project configuration and dependencies (`da80660`)
+
+---
+
+## Contributors
+
+- **Erman Titiz**: 11 commits (100.0%) `████████████████████`
+  - +2560 / -83 lines
+
+
+---
+
+
+# 1.2.2
+
+**Release Date:** 2025-12-25
+**Previous Version:** v1.2.0
 **Total Commits:** 8
 
 ---
