@@ -577,7 +577,8 @@ Return ONLY the issue description text, nothing else.
         summary: str,
         description: str = "",
         issue_type: str = "task",
-        story_points: Optional[float] = None
+        story_points: Optional[float] = None,
+        parent_key: Optional[str] = None
     ) -> Optional[str]:
         """
         Create a new issue.
@@ -585,8 +586,9 @@ Return ONLY the issue description text, nothing else.
         Args:
             summary: Issue title
             description: Issue description
-            issue_type: Type of issue (task, bug, story, etc.)
+            issue_type: Type of issue (task, bug, story, subtask, etc.)
             story_points: Optional story points estimate
+            parent_key: Parent issue key for subtasks (e.g., "SCRUM-123")
 
         Returns:
             Issue key (e.g., "SCRUM-123") or None if failed
