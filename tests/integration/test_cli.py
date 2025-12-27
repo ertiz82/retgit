@@ -396,34 +396,40 @@ class TestSubApps:
 
     def test_integration_app_registered(self):
         """Test integration subcommand is available."""
-        result = runner.invoke(app, ["integration"])
-        # Should not error, might show help or list
-        assert result.exit_code == 0 or "Usage" in result.stdout
+        result = runner.invoke(app, ["integration", "--help"])
+        # Should show help with Usage
+        assert result.exit_code == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
 
     def test_plugin_app_registered(self):
         """Test plugin subcommand is available."""
-        result = runner.invoke(app, ["plugin"])
-        assert result.exit_code == 0 or "Usage" in result.stdout
+        result = runner.invoke(app, ["plugin", "--help"])
+        assert result.exit_code == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
 
     def test_tap_app_registered(self):
         """Test tap subcommand is available."""
-        result = runner.invoke(app, ["tap"])
-        assert result.exit_code == 0 or "Usage" in result.stdout
+        result = runner.invoke(app, ["tap", "--help"])
+        assert result.exit_code == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
 
     def test_ci_app_registered(self):
         """Test ci subcommand is available."""
-        result = runner.invoke(app, ["ci"])
-        assert result.exit_code == 0 or "Usage" in result.stdout
+        result = runner.invoke(app, ["ci", "--help"])
+        assert result.exit_code == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
 
     def test_quality_app_registered(self):
         """Test quality subcommand is available."""
-        result = runner.invoke(app, ["quality"])
-        assert result.exit_code == 0 or "Usage" in result.stdout
+        result = runner.invoke(app, ["quality", "--help"])
+        assert result.exit_code == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
 
     def test_scout_app_registered(self):
         """Test scout subcommand is available."""
-        result = runner.invoke(app, ["scout"])
-        assert result.exit_code == 0 or "Usage" in result.stdout
+        result = runner.invoke(app, ["scout", "--help"])
+        assert result.exit_code == 0
+        assert "Usage" in result.stdout or "usage" in result.stdout.lower()
 
 
 class TestErrorHandling:
