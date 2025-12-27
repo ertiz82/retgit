@@ -6,6 +6,8 @@ import yaml
 from pathlib import Path
 from typing import List, Dict
 
+from .constants import LLM_REQUEST_TIMEOUT, MAX_ERROR_OUTPUT_LENGTH
+
 # API client imports (optional)
 try:
     import openai
@@ -114,7 +116,7 @@ class LLMClient:
     """
 
     def __init__(self, config: dict):
-        self.timeout = config.get("timeout", 120)
+        self.timeout = config.get("timeout", LLM_REQUEST_TIMEOUT)
         self.provider_name = config.get("provider", "auto")
         self.model = config.get("model")
         self.api_key = config.get("api_key")
@@ -194,6 +196,96 @@ class LLMClient:
             return self._chat_api(prompt)
         else:
             raise ValueError(f"Unknown provider type: {provider_type}")
+
+    def generate_task_filtered_groups(self, prompt: str, return_raw: bool = False) -> dict:
+        """
+        Generate task-filtered commit groups.
+
+        Sends prompt to LLM and parses response into three categories:
+        - related_groups: Files related to the parent task (subtasks)
+        - other_task_matches: Files matching other active tasks
+        - unmatched_files: Files not matching any task
+
+        Args:
+            prompt: The task-filtered prompt
+            return_raw: If True, return tuple of (result, raw_response)
+
+        Returns:
+            Dict with keys: related_groups, other_task_matches, unmatched_files
+        """
+        # Get raw response from LLM
+        raw_output = self.chat(prompt)
+
+        # Parse the response
+        result = self._parse_task_filtered_response(raw_output)
+
+        if return_raw:
+            return result, raw_output
+        return result
+
+    def _parse_task_filtered_response(self, output: str) -> dict:
+        """
+        Parse JSON response for task-filtered mode.
+
+        Expected format:
+        {
+            "related_groups": [...],
+            "other_task_matches": [...],
+            "unmatched_files": [...]
+        }
+        """
+        default = {
+            "related_groups": [],
+            "other_task_matches": [],
+            "unmatched_files": []
+        }
+
+        # Try to find JSON in the output
+        # First, try to find a JSON code block
+        json_text = None
+        for marker in ["```json", "```"]:
+            start = output.find(marker)
+            if start != -1:
+                marker_len = len(marker)
+                end = output.find("```", start + marker_len)
+                if end != -1:
+                    json_text = output[start + marker_len:end].strip()
+                    break
+
+        # If no code block, try to find raw JSON
+        if json_text is None:
+            # Look for JSON object
+            start = output.find("{")
+            end = output.rfind("}") + 1
+            if start >= 0 and end > start:
+                json_text = output[start:end]
+
+        if not json_text:
+            return default
+
+        try:
+            data = json.loads(json_text)
+
+            # Validate and return with defaults for missing keys
+            return {
+                "related_groups": data.get("related_groups", []),
+                "other_task_matches": data.get("other_task_matches", []),
+                "unmatched_files": data.get("unmatched_files", [])
+            }
+        except json.JSONDecodeError:
+            # Try YAML as fallback
+            try:
+                data = yaml.safe_load(json_text)
+                if isinstance(data, dict):
+                    return {
+                        "related_groups": data.get("related_groups", []),
+                        "other_task_matches": data.get("other_task_matches", []),
+                        "unmatched_files": data.get("unmatched_files", [])
+                    }
+            except Exception:
+                pass
+
+            return default
 
     def _chat_cli(self, prompt: str) -> str:
         """Run CLI-based LLM for chat"""
