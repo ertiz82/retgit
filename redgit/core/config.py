@@ -2,6 +2,13 @@ from pathlib import Path
 from typing import Optional, Any, List
 import yaml
 
+from .constants import (
+    DEFAULT_QUALITY_THRESHOLD,
+    SEMGREP_TIMEOUT,
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_MAX_LOG_FILES,
+)
+
 # Global RedGit directory (shared across all projects)
 GLOBAL_REDGIT_DIR = Path.home() / ".redgit"
 GLOBAL_TAPS_DIR = GLOBAL_REDGIT_DIR / "taps"
@@ -49,7 +56,7 @@ DEFAULT_NOTIFICATIONS = {
 # Default code quality settings
 DEFAULT_QUALITY = {
     "enabled": False,               # Master switch for quality checks
-    "threshold": 70,                # Minimum score (0-100) to pass
+    "threshold": DEFAULT_QUALITY_THRESHOLD,  # Minimum score (0-100) to pass
     "fail_on_security": True,       # Always fail on critical/high security issues
     "prompt_file": "quality_prompt.md",  # Prompt template file name
 }
@@ -60,7 +67,16 @@ DEFAULT_SEMGREP = {
     "configs": ["auto"],            # Semgrep configs: auto, p/security-audit, p/python, etc.
     "severity": ["ERROR", "WARNING"],  # Minimum severity: ERROR, WARNING, INFO
     "exclude": [],                  # Paths to exclude
-    "timeout": 300,                 # Timeout in seconds
+    "timeout": SEMGREP_TIMEOUT,     # Timeout in seconds
+}
+
+# Default logging settings
+DEFAULT_LOGGING = {
+    "enabled": True,                # Master switch for file logging
+    "level": DEFAULT_LOG_LEVEL,     # Log level: DEBUG, INFO, WARNING, ERROR
+    "file": True,                   # Log to file (.redgit/logs/)
+    "console": True,                # Log to console
+    "max_files": DEFAULT_MAX_LOG_FILES,  # Keep last N log files
 }
 
 
@@ -399,6 +415,49 @@ class ConfigManager:
         if config_name in configs:
             configs.remove(config_name)
             self.set_semgrep_configs(configs)
+
+    # Logging configuration methods
+    def get_logging_config(self) -> dict:
+        """Get logging settings with defaults."""
+        config = self.load()
+        logging = config.get("logging", {})
+
+        # Merge with defaults
+        result = DEFAULT_LOGGING.copy()
+        for key in DEFAULT_LOGGING:
+            if key in logging:
+                result[key] = logging[key]
+
+        return result
+
+    def is_logging_enabled(self) -> bool:
+        """Check if file logging is enabled."""
+        logging = self.get_logging_config()
+        return logging.get("enabled", True)
+
+    def get_log_level(self) -> str:
+        """Get the configured log level."""
+        logging = self.get_logging_config()
+        return logging.get("level", "INFO")
+
+    def set_logging_enabled(self, enabled: bool):
+        """Enable or disable file logging."""
+        config = self.load()
+        if "logging" not in config:
+            config["logging"] = DEFAULT_LOGGING.copy()
+        config["logging"]["enabled"] = enabled
+        self.save(config)
+
+    def set_log_level(self, level: str):
+        """Set the log level."""
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        if level.upper() not in valid_levels:
+            raise ValueError(f"Invalid log level: {level}. Must be one of {valid_levels}")
+        config = self.load()
+        if "logging" not in config:
+            config["logging"] = DEFAULT_LOGGING.copy()
+        config["logging"]["level"] = level.upper()
+        self.save(config)
 
 
 class StateManager:
