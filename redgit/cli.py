@@ -5,6 +5,7 @@ from rich import print as rprint
 
 from redgit import __version__
 from redgit.splash import splash
+from redgit.utils.logging import setup_logging, get_logger
 from redgit.commands.init import init_cmd
 from redgit.commands.propose import propose_cmd
 from redgit.commands.push import push_cmd
@@ -107,7 +108,38 @@ def _load_integration_commands():
         pass
 
 
+def _setup_logging():
+    """Set up logging based on config."""
+    try:
+        from redgit.core.config import ConfigManager
+
+        config_manager = ConfigManager()
+        logging_config = config_manager.get_logging_config()
+
+        # Check if logging is enabled
+        if not logging_config.get("enabled", True):
+            return
+
+        # Determine log level
+        level_str = logging_config.get("level", "INFO").upper()
+        log_to_file = logging_config.get("file", True)
+
+        # Check for verbose flag in args
+        verbose = "-v" in sys.argv or "--verbose" in sys.argv
+
+        setup_logging(
+            verbose=verbose,
+            log_to_file=log_to_file
+        )
+    except Exception:
+        # Silently continue if logging setup fails
+        pass
+
+
 def main():
+    # Set up logging
+    _setup_logging()
+
     # Load plugin and integration commands dynamically
     _load_plugin_commands()
     _load_integration_commands()
