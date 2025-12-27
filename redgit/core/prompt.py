@@ -4,6 +4,13 @@ from typing import List, Dict, Any, Optional
 
 from ..prompts import RESPONSE_SCHEMA
 from ..core.config import RETGIT_DIR
+from ..core.constants import (
+    MAX_FILE_CONTENT_LENGTH,
+    MAX_ISSUE_DESC_LENGTH,
+    MAX_FILES_DISPLAY,
+    SUPPORTED_LANGUAGES,
+    DEFAULT_LANGUAGE,
+)
 from ..plugins.registry import get_plugin_by_name, get_builtin_plugins
 
 # Builtin prompts directory (inside package)
@@ -78,7 +85,7 @@ class PromptManager:
     """
 
     def __init__(self, config: dict):
-        self.max_files = config.get("max_files", 100)
+        self.max_files = config.get("max_files", MAX_FILES_DISPLAY)
         self.include_content = config.get("include_content", False)
         self.default_prompt = config.get("prompt", "auto")
 
@@ -126,6 +133,78 @@ class PromptManager:
             has_issues=bool(active_issues),
             issue_language=issue_language
         )
+
+        return prompt
+
+    def get_task_filtered_prompt(
+        self,
+        changes: List[Dict],
+        parent_task,  # Issue object
+        other_tasks: Optional[List] = None,
+        issue_language: Optional[str] = None
+    ) -> str:
+        """
+        Build prompt for task-filtered mode.
+
+        Analyzes files for relevance to a specific parent task and
+        optionally matches unrelated files to other active tasks.
+
+        Args:
+            changes: List of file changes
+            parent_task: Parent task Issue object (with key, summary, description)
+            other_tasks: User's other active tasks for matching
+            issue_language: Language for issue titles (e.g., "tr", "en")
+
+        Returns:
+            Complete prompt for task-filtered analysis
+        """
+        # Load task-filtered template
+        template = self._load_by_name("task_filtered", category="commit")
+
+        # Format file list
+        files_section = self._format_files(changes)
+
+        # Format parent task context
+        # Add strict warning when description is missing or too short
+        parent_desc = ""
+        has_description = hasattr(parent_task, 'description') and parent_task.description
+        if has_description and len(parent_task.description.strip()) > 50:
+            parent_desc = parent_task.description
+        else:
+            parent_desc = (
+                "⚠️ NO DESCRIPTION PROVIDED - BE EXTRA STRICT!\n"
+                "Only match files where the path/name EXACTLY contains keywords from the task title.\n"
+                "When in doubt, mark as unmatched_files."
+            )
+
+        # Replace placeholders
+        prompt = template.replace("{{PARENT_TASK_KEY}}", parent_task.key)
+        prompt = prompt.replace("{{PARENT_TASK_SUMMARY}}", parent_task.summary)
+        prompt = prompt.replace("{{PARENT_TASK_DESCRIPTION}}", parent_desc)
+        prompt = prompt.replace("{{FILES}}", files_section)
+
+        # Format other tasks
+        if other_tasks:
+            other_tasks_lines = []
+            for t in other_tasks[:15]:  # Limit to 15 tasks
+                status = f"[{t.status}]" if hasattr(t, 'status') else ""
+                other_tasks_lines.append(f"- **{t.key}** {status}: {t.summary}")
+            other_tasks_section = "\n".join(other_tasks_lines)
+        else:
+            other_tasks_section = "No other active tasks found."
+
+        prompt = prompt.replace("{{OTHER_TASKS}}", other_tasks_section)
+
+        # Add language note if needed
+        if issue_language and issue_language != "en":
+            lang_names = {
+                "tr": "Turkish", "de": "German", "fr": "French",
+                "es": "Spanish", "pt": "Portuguese", "it": "Italian",
+                "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
+                "ko": "Korean", "ar": "Arabic"
+            }
+            lang_name = lang_names.get(issue_language, issue_language)
+            prompt += f"\n\n**IMPORTANT:** Write issue_title and issue_description in {lang_name}."
 
         return prompt
 
@@ -407,7 +486,7 @@ class PromptManager:
                     path = Path(file_path)
                     if path.exists() and path.is_file():
                         ext = path.suffix.lstrip('.') or 'txt'
-                        content = path.read_text(encoding="utf-8", errors="ignore")[:500]
+                        content = path.read_text(encoding="utf-8", errors="ignore")[:MAX_FILE_CONTENT_LENGTH]
                         line += f"\n```{ext}\n{content}\n```"
                 except Exception:
                     pass
@@ -439,8 +518,8 @@ class PromptManager:
             lines.append(f"- **{issue.key}** {status}: {issue.summary}")
             if hasattr(issue, 'description') and issue.description:
                 # Truncate long descriptions
-                desc = issue.description[:150]
-                if len(issue.description) > 150:
+                desc = issue.description[:MAX_ISSUE_DESC_LENGTH]
+                if len(issue.description) > MAX_ISSUE_DESC_LENGTH:
                     desc += "..."
                 lines.append(f"  {desc}")
             lines.append("")
