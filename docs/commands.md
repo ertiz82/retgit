@@ -34,9 +34,14 @@ rg propose -p laravel
 # Skip task management
 rg propose --no-task
 
-# Link all changes to a specific task (single commit)
-rg propose --task 123
+# Task-Filtered Mode: Smart subtask creation under parent task
 rg propose -t PROJ-123
+rg propose --task 858
+
+# Auto-detect task from branch name (if on feature/PROJ-123-xxx branch)
+rg propose
+# → "Branch'ten task tespit edildi: PROJ-123"
+# → "Task-filtered mode ile devam edilsin mi?"
 
 # Dry-run: See what would happen without making changes
 rg propose --dry-run
@@ -59,7 +64,7 @@ rg propose -v -n -d
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--prompt` | `-p` | Use specific prompt or plugin |
-| `--task` | `-t` | Link all changes to specific task |
+| `--task` | `-t` | Task-filtered mode: create subtasks under parent task |
 | `--no-task` | | Skip task management integration |
 | `--dry-run` | `-n` | Analyze without making changes (preview mode) |
 | `--verbose` | `-v` | Show detailed output (prompts, responses, debug) |
@@ -117,6 +122,93 @@ Benefits:
 - Localized issue titles/descriptions (respects `issue_language` setting)
 
 Note: Detailed mode is slower as it makes additional LLM calls per group.
+
+#### Task-Filtered Mode (`--task`, `-t`)
+
+Smart subtask creation mode that analyzes file relevance to a parent task:
+
+```bash
+# Explicit task ID
+rg propose -t PROJ-123
+
+# Just the number (project key added automatically)
+rg propose -t 123
+```
+
+**How it works:**
+
+1. **Fetches parent task** details from task management (Jira, Linear, etc.)
+2. **Analyzes file relevance** using AI to determine which files relate to the parent task
+3. **Creates subtasks** only for related files under the parent task
+4. **Matches other files** to user's other open tasks
+5. **Reports unmatched files** and leaves them in working directory
+6. **Asks about pushing** parent branch after subtasks are processed
+7. **Returns to original branch** - always returns to the starting branch
+
+**Branch hierarchy:**
+
+```
+Original Branch (dev)
+    ↓
+Parent Branch (feature/PROJ-123-parent-task)
+    ↓
+Subtask Branch 1 (feature/PROJ-456-subtask-1) → merge to parent
+    ↓
+Subtask Branch 2 (feature/PROJ-457-subtask-2) → merge to parent
+    ↓
+Ask: "Push parent branch?"
+    ↓
+Return to Original Branch (dev)
+```
+
+**Auto-detection from branch:**
+
+When you're on a task branch (e.g., `feature/PROJ-123-some-work`), running `rg propose` without `-t` will:
+
+1. Detect the task ID from the branch name
+2. Ask if you want to use task-filtered mode
+3. If confirmed, proceed with subtask creation
+
+```bash
+# On branch: feature/SCRUM-858-admin-panel
+$ rg propose
+
+# Output:
+# Branch'ten task tespit edildi: SCRUM-858
+# Task-filtered mode ile devam edilsin mi? [Y/n]
+```
+
+**Example workflow:**
+
+```bash
+# Working on dev branch
+git checkout dev
+
+# Make changes to multiple files
+vim src/admin/users.py
+vim src/admin/settings.py
+vim src/api/auth.py
+
+# Create subtasks under SCRUM-858
+rg propose -t SCRUM-858
+
+# Output:
+# ✓ Parent task: SCRUM-858 - Admin panel improvements
+#
+# Analysis Results:
+#   ✓ 2 subtask(s) for SCRUM-858
+#   → 1 group(s) match other tasks
+#   ○ 0 file(s) unmatched
+#
+# Creating subtasks under SCRUM-858...
+#   Subtask 1: Admin user management
+#   Subtask 2: Admin settings page
+#
+# ✓ Tüm subtask'lar SCRUM-858 parent branch'ine merge edildi.
+# Parent branch'i pushlamak istiyor musunuz? [y/N]
+#
+# ✓ dev branch'ine dönüldü
+```
 
 #### Combining Flags
 
