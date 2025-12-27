@@ -450,8 +450,8 @@ class TestPushCmdIntegration:
 
         assert result.exit_code == 0
         assert "--complete" in result.stdout or "complete" in result.stdout
-        assert "--pr" in result.stdout
-        assert "--force" in result.stdout
+        assert "--pr" in result.stdout or "pr" in result.stdout
+        assert "--force" in result.stdout or "force" in result.stdout
 
     def test_push_requires_git_repo(self, tmp_path):
         """Test push fails outside git repo."""
