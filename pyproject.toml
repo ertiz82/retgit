@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "redgit"
-version = "1.2.2"
+version = "1.3.0"
 description = "AI-powered Git workflow assistant with task management integration"
 readme = "README.md"
 license = "MIT"
@@ -37,6 +37,13 @@ dependencies = [
     "ruff>=0.4.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/ertiz82/redgit"
 Documentation = "https://github.com/ertiz82/redgit#readme"
@@ -57,3 +64,22 @@ redgit = [
     "integrations/*.json",
     "prompts/**/*.md"
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+source = ["redgit"]
+omit = ["tests/*", "redgit/splash.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+show_missing = true
