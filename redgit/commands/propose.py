@@ -58,6 +58,30 @@ def _extract_issue_from_branch(branch_name: str, config: dict) -> Optional[str]:
 
     return None
 
+
+def _build_commit_message(title: str, body: str = "", issue_ref: str = None) -> str:
+    """
+    Build commit message with RedGit signature.
+
+    Args:
+        title: Commit title (first line)
+        body: Commit body (details)
+        issue_ref: Issue reference (e.g., "PROJ-123")
+
+    Returns:
+        Complete commit message with RedGit signature
+    """
+    from ..core.constants import REDGIT_SIGNATURE
+
+    msg = title
+    if body:
+        msg += f"\n\n{body}"
+    if issue_ref:
+        msg += f"\n\nRefs: {issue_ref}"
+    msg += REDGIT_SIGNATURE
+    return msg
+
+
 console = Console()
 
 
@@ -846,8 +870,11 @@ def _process_matched_groups(
         group["branch"] = branch_name
 
         # Build commit message with issue reference
-        msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
-        msg += f"\n\nRefs: {issue_key}"
+        msg = _build_commit_message(
+            title=group['commit_title'],
+            body=group.get('commit_body', ''),
+            issue_ref=issue_key
+        )
 
         # Create branch and commit using new method
         try:
@@ -1005,9 +1032,11 @@ def _process_unmatched_groups(
         group["issue_key"] = issue_key
 
         # Build commit message
-        msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
-        if issue_key:
-            msg += f"\n\nRefs: {issue_key}"
+        msg = _build_commit_message(
+            title=group['commit_title'],
+            body=group.get('commit_body', ''),
+            issue_ref=issue_key if issue_key else None
+        )
 
         # Create branch and commit using new method
         try:
@@ -1154,8 +1183,11 @@ def _process_subtasks_mode(
             subtask_branch = task_mgmt.format_branch_name(subtask_key, commit_title)
 
             # Build commit message
-            msg = f"{group['commit_title']}\n\n{group.get('commit_body', '')}"
-            msg += f"\n\nRefs: {subtask_key}"
+            msg = _build_commit_message(
+                title=group['commit_title'],
+                body=group.get('commit_body', ''),
+                issue_ref=subtask_key
+            )
 
             # Create subtask branch from parent, commit, and merge back to parent
             files = group.get("files", [])
@@ -1379,8 +1411,11 @@ def _process_task_commit(
         return
 
     # Build full commit message
-    msg = f"{commit_title}\n\n{commit_body}".strip()
-    msg += f"\n\nRefs: {issue_key}"
+    msg = _build_commit_message(
+        title=commit_title,
+        body=commit_body,
+        issue_ref=issue_key
+    )
 
     # Save base branch for session
     state_manager.set_base_branch(gitops.original_branch)
@@ -2286,9 +2321,11 @@ def _process_related_groups_as_subtasks(
 
         # Create subtask branch FROM parent branch, commit, and merge back to parent
         subtask_branch = task_mgmt.format_branch_name(subtask_key or parent_task_key, commit_title)
-        msg = f"{commit_title}\n\n{commit_body}".strip()
-        if subtask_key:
-            msg += f"\n\nRefs: {subtask_key}"
+        msg = _build_commit_message(
+            title=commit_title,
+            body=commit_body,
+            issue_ref=subtask_key if subtask_key else None
+        )
 
         # Use create_subtask_branch_and_commit which creates branch FROM parent_branch
         success = gitops.create_subtask_branch_and_commit(
@@ -2351,7 +2388,11 @@ def _process_other_task_matches(
         # Ask user for confirmation
         if Confirm.ask(f"   Commit these {len(files)} file(s) to {issue_key}?", default=True):
             branch_name = task_mgmt.format_branch_name(issue_key, commit_title)
-            msg = f"{commit_title}\n\nRefs: {issue_key}"
+            msg = _build_commit_message(
+                title=commit_title,
+                body="",
+                issue_ref=issue_key
+            )
 
             success = gitops.create_branch_and_commit(branch_name, files, msg, strategy=strategy)
             if success:
@@ -2410,7 +2451,11 @@ def _handle_unmatched_files(
         if issue_key:
             console.print(f"[green]✓ Created task: {issue_key}[/green]")
             branch_name = task_mgmt.format_branch_name(issue_key, summary)
-            msg = f"{summary}\n\nRefs: {issue_key}"
+            msg = _build_commit_message(
+                title=summary,
+                body="",
+                issue_ref=issue_key
+            )
 
             success = gitops.create_branch_and_commit(branch_name, files, msg, strategy=strategy)
             if success:

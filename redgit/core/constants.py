@@ -233,3 +233,14 @@ SUPPORTED_LANGUAGES = {
 }
 
 DEFAULT_LANGUAGE = "en"
+
+
+# =============================================================================
+# COMMIT SIGNATURE
+# =============================================================================
+
+REDGIT_SIGNATURE = """
+🦊 Generated with [RedGit](https://github.com/ertiz82/redgit)
+Co-Authored-By: RedGit <noreply@redgit.dev>
+"Gölgeden hızlı commit at, Red Git!"
+"""
