@@ -1,6 +1,82 @@
 # Changelog
 
 
+# 1.3.0
+
+**Release Date:** 2025-12-27
+**Previous Version:** v1.2.2
+**Total Commits:** 43
+
+---
+
+## Commit Details
+
+### ✨ Features (13)
+
+- **core:** update prompt module (`7f7ae59`)
+- **core:** update LLM module (`bd572d5`)
+- **core:** update git operations module (`35b1b16`)
+- **core:** update config module (`dd6de60`)
+- **commands:** update push command (`06523e5`)
+- **commands:** update propose command (`25d739f`)
+- **cli:** update CLI module (`b7a115a`)
+- **utils:** add notification utilities (`43c5bf8`)
+- **utils:** add logging utilities (`5dc756f`)
+- **utils:** add formatting utilities (`2a832b9`)
+- **prompt:** add task filtered commit prompt (`9e00a72`)
+- **core:** add constants module (`57328cd`)
+- **plugins:** enhance plugin registry and CLI integration (`2d107cb`)
+
+### 📚 Documentation (4)
+
+- update workflows documentation (`c09ac12`)
+- update commands documentation (`e53c430`)
+- update README documentation (`b1c345b`)
+- update README and refresh logo (`2095217`)
+
+### 🧪 Tests (19)
+
+- **unit:** add security unit tests (`0ee7f0a`)
+- **unit:** add quality unit tests (`1bdb8bb`)
+- **unit:** add push command unit tests (`5ca58f7`)
+- **unit:** add propose command unit tests (`efc3db4`)
+- **unit:** add prompt unit tests (`23869aa`)
+- **unit:** add logging unit tests (`826f53f`)
+- **unit:** add LLM unit tests (`9444bfa`)
+- **unit:** add base integrations unit tests (`aefb759`)
+- **unit:** add integration command unit tests (`fc594b0`)
+- **unit:** add init command unit tests (`92fc631`)
+- **unit:** add git operations unit tests (`e34992b`)
+- **unit:** add daily command unit tests (`1defedb`)
+- **unit:** add config unit tests (`7af08ad`)
+- **unit:** add CI unit tests (`6a902a3`)
+- add unit test package initialization (`8c62a23`)
+- **integration:** add CLI integration tests (`fed43a9`)
+- add integration test package initialization (`c6e7e2f`)
+- add test configuration (`0766b32`)
+- add test package initialization (`8663529`)
+
+### 🔧 Chores (7)
+
+- update package initialization (`710226e`)
+- **build:** update project dependencies (`d20eba9`)
+- **assets:** update logo asset (`39f2bf3`)
+- **build:** update Homebrew formula (`b53853a`)
+- **ci:** add GitHub Actions test workflow (`f8f59b8`)
+- update changelog for v1.2.2 (`d5e217c`)
+- **release:** prepare v1.2.2 with changelog and dependency updates (`3210df5`)
+
+---
+
+## Contributors
+
+- **Erman Titiz**: 43 commits (100.0%) `████████████████████`
+  - +13654 / -589 lines
+
+
+---
+
+
 # 1.2.2
 
 **Release Date:** 2025-12-25
