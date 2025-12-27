@@ -6,6 +6,11 @@ import git
 from git.exc import InvalidGitRepositoryError
 
 from ..utils.security import is_excluded
+from .constants import (
+    MAX_DIFF_LENGTH,
+    GIT_CONFLICT_STATUSES,
+    GIT_DELETED_CONFLICT_STATUSES,
+)
 
 
 class NotAGitRepoError(Exception):
@@ -89,13 +94,13 @@ class GitOps:
                         if " -> " in filepath:
                             filepath = filepath.split(" -> ")[-1]
                         # Check for unmerged (conflict) statuses
-                        if xy in ("DD", "AU", "UD", "UA", "DU", "AA", "UU"):
+                        if xy in GIT_CONFLICT_STATUSES:
                             if filepath not in seen:
                                 seen.add(filepath)
                                 if include_excluded or not is_excluded(filepath):
                                     # For "deleted by them" (UD) or "deleted by us" (DU),
                                     # mark as deleted if we want to accept the deletion
-                                    if xy in ("UD", "DU", "DD"):
+                                    if xy in GIT_DELETED_CONFLICT_STATUSES:
                                         changes.append({"file": filepath, "status": "D", "conflict": True})
                                     else:
                                         changes.append({"file": filepath, "status": "C", "conflict": True})
@@ -222,8 +227,8 @@ class GitOps:
                     try:
                         content = path.read_text(encoding='utf-8', errors='ignore')
                         # Truncate large files
-                        if len(content) > 2000:
-                            content = content[:2000] + "\n... (truncated)"
+                        if len(content) > MAX_DIFF_LENGTH:
+                            content = content[:MAX_DIFF_LENGTH] + "\n... (truncated)"
                         diffs.append(f"# {file_path} (new file)\n+++ {file_path}\n{content}")
                     except Exception:
                         pass
@@ -232,6 +237,56 @@ class GitOps:
                 continue
 
         return "\n\n".join(diffs)
+
+    def _find_stash_index(self, message_pattern: str) -> Optional[int]:
+        """
+        Find a stash index by its message pattern.
+
+        Args:
+            message_pattern: The pattern to search for in stash messages
+
+        Returns:
+            The stash index (0-based) if found, None otherwise
+        """
+        try:
+            result = self.repo.git.stash("list")
+            if not result:
+                return None
+
+            for line in result.split("\n"):
+                if message_pattern in line:
+                    # Format: stash@{0}: On branch: message
+                    # Extract the index from stash@{N}
+                    start = line.find("stash@{") + 7
+                    end = line.find("}", start)
+                    if start > 6 and end > start:
+                        return int(line[start:end])
+            return None
+        except Exception:
+            return None
+
+    def _pop_stash_by_message(self, message_pattern: str) -> bool:
+        """
+        Pop a specific stash entry by its message pattern.
+
+        This prevents mixing up stash entries when multiple groups are being processed.
+        If the specific stash is not found, it will NOT pop any stash to avoid
+        accidentally restoring unrelated files.
+
+        Args:
+            message_pattern: The pattern to search for in stash messages
+
+        Returns:
+            True if stash was found and popped, False otherwise
+        """
+        stash_index = self._find_stash_index(message_pattern)
+        if stash_index is not None:
+            try:
+                self.repo.git.stash("pop", f"stash@{{{stash_index}}}")
+                return True
+            except Exception:
+                return False
+        return False
 
     def create_branch_and_commit(
         self,
@@ -338,12 +393,9 @@ class GitOps:
                     actual_branch_name = f"{branch_name}-v2"
                     self.repo.git.checkout("-b", actual_branch_name, base_branch)
 
-            # 3. Pop stash to get files back
+            # 3. Pop stash to get files back (use message pattern to avoid mixing stashes)
             if stash_created:
-                try:
-                    self.repo.git.stash("pop")
-                except Exception:
-                    pass
+                self._pop_stash_by_message(f"redgit-temp-{branch_name}")
 
             # 4. Reset index (unstage everything)
             try:
@@ -403,12 +455,9 @@ class GitOps:
                     pass
             # For merge-request strategy: branch is kept for later push
 
-            # 11. Pop remaining stash
+            # 11. Pop remaining stash (use message pattern to avoid mixing stashes)
             if remaining_stashed:
-                try:
-                    self.repo.git.stash("pop")
-                except Exception:
-                    pass
+                self._pop_stash_by_message(f"redgit-remaining-{branch_name}")
 
             return True
 
@@ -418,11 +467,9 @@ class GitOps:
                 self.repo.git.checkout(base_branch)
             except Exception:
                 pass
-            # Try to pop any stash
-            try:
-                self.repo.git.stash("pop")
-            except Exception:
-                pass
+            # Try to pop our stashes (both temp and remaining, in case either exists)
+            self._pop_stash_by_message(f"redgit-temp-{branch_name}")
+            self._pop_stash_by_message(f"redgit-remaining-{branch_name}")
             raise e
 
     @contextlib.contextmanager
@@ -646,10 +693,7 @@ class GitOps:
                         self.repo.git.checkout("-b", branch_name, f"origin/{branch_name}")
                     except Exception as e:
                         if stash_created:
-                            try:
-                                self.repo.git.stash("pop")
-                            except Exception:
-                                pass
+                            self._pop_stash_by_message(f"redgit-checkout-{branch_name}")
                         return False, False, f"Failed to checkout remote branch: {e}"
 
                 # Pull latest changes
@@ -659,18 +703,12 @@ class GitOps:
                     except Exception as e:
                         # Pop stash before returning error
                         if stash_created:
-                            try:
-                                self.repo.git.stash("pop")
-                            except Exception:
-                                pass
+                            self._pop_stash_by_message(f"redgit-checkout-{branch_name}")
                         return False, False, f"Pull failed (possible conflict): {e}"
 
-                # Pop stash
+                # Pop stash (use message pattern to avoid mixing stashes)
                 if stash_created:
-                    try:
-                        self.repo.git.stash("pop")
-                    except Exception:
-                        pass
+                    self._pop_stash_by_message(f"redgit-checkout-{branch_name}")
                 return True, False, None
 
             # Check if branch exists locally
@@ -678,10 +716,7 @@ class GitOps:
             if branch_name in local_branches:
                 self.repo.git.checkout(branch_name)
                 if stash_created:
-                    try:
-                        self.repo.git.stash("pop")
-                    except Exception:
-                        pass
+                    self._pop_stash_by_message(f"redgit-checkout-{branch_name}")
                 return True, False, None
 
             # Create new branch
@@ -689,19 +724,13 @@ class GitOps:
             self.repo.git.checkout("-b", branch_name, base)
 
             if stash_created:
-                try:
-                    self.repo.git.stash("pop")
-                except Exception:
-                    pass
+                self._pop_stash_by_message(f"redgit-checkout-{branch_name}")
             return True, True, None
 
         except Exception as e:
             # Recovery - try to go back
-            try:
-                if stash_created:
-                    self.repo.git.stash("pop")
-            except Exception:
-                pass
+            if stash_created:
+                self._pop_stash_by_message(f"redgit-checkout-{branch_name}")
             return False, False, str(e)
 
     def merge_branch(
@@ -825,12 +854,9 @@ class GitOps:
                     actual_branch_name = f"{subtask_branch}-v2"
                     self.repo.git.checkout("-b", actual_branch_name, parent_branch)
 
-            # 3. Pop stash to get files back
+            # 3. Pop stash to get files back (use message pattern to avoid mixing stashes)
             if stash_created:
-                try:
-                    self.repo.git.stash("pop")
-                except Exception:
-                    pass
+                self._pop_stash_by_message(f"redgit-subtask-{subtask_branch}")
 
             # 4. Reset index (unstage everything)
             try:
@@ -882,12 +908,9 @@ class GitOps:
             except Exception:
                 pass
 
-            # 11. Pop remaining stash
+            # 11. Pop remaining stash (use message pattern to avoid mixing stashes)
             if remaining_stashed:
-                try:
-                    self.repo.git.stash("pop")
-                except Exception:
-                    pass
+                self._pop_stash_by_message(f"redgit-remaining-{subtask_branch}")
 
             return True
 
@@ -897,9 +920,7 @@ class GitOps:
                 self.repo.git.checkout(parent_branch)
             except Exception:
                 pass
-            # Try to pop any stash
-            try:
-                self.repo.git.stash("pop")
-            except Exception:
-                pass
+            # Try to pop our stashes (both subtask and remaining, in case either exists)
+            self._pop_stash_by_message(f"redgit-subtask-{subtask_branch}")
+            self._pop_stash_by_message(f"redgit-remaining-{subtask_branch}")
             raise e
